@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: whistle
+      POSTGRES_PASSWORD: whistle
+      POSTGRES_DB: whistle
+    ports:
+      - "127.0.0.1:6402:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whistle"]
+      interval: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:6403:8025"
+      - "127.0.0.1:6404:1025"
+
+  # Full stack: docker compose --profile app up --build
+  server:
+    profiles: [app]
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://whistle:whistle@postgres:5432/whistle
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+    volumes:
+      - uploads:/data
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    profiles: [app]
+    build: { context: ., dockerfile: apps/web/Dockerfile, args: { API_ORIGIN: "http://server:6400" } }
+    ports:
+      - "127.0.0.1:6401:6401"
+    depends_on: [server]
+
+volumes:
+  pgdata:
+  uploads:

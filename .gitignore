@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+coverage/
+.DS_Store
+
+# Secrets — never commit. Only .env.example (with blank values) is tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+id_rsa*
+secrets/
+
+# Runtime data: evidence uploads and local DB dumps
+data/
+*.dump
+*.sql.gz

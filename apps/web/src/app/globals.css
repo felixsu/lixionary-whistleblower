@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* System fonts only: no third-party requests that could reveal a reporter's visit. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+}
+
+:root {
+  --canvas: #f6f6f3;
+  --surface: #ffffff;
+  --sunken: #efefea;
+  --ink: #1b1e23;
+  --muted: #5d6470;
+  --line: #e1e1db;
+  --accent: #0e6b68;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2f0ee;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --warn: #a24a05;
+  --warn-soft: #fdf1e3;
+  --ok: #08703f;
+  --ok-soft: #e5f4ec;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #121417;
+    --surface: #1a1d21;
+    --sunken: #22262b;
+    --ink: #e8e9eb;
+    --muted: #9aa1ab;
+    --line: #2e333a;
+    --accent: #4fb8b2;
+    --accent-ink: #0b1514;
+    --accent-soft: #173331;
+    --danger: #f28b82;
+    --danger-soft: #3a1d1b;
+    --warn: #f0b36a;
+    --warn-soft: #3a2a17;
+    --ok: #6fcf97;
+    --ok-soft: #173126;
+    color-scheme: dark;
+  }
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.typing-dot {
+  animation: blink 1.2s infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}

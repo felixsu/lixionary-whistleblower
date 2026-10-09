@@ -1,0 +1,24 @@
+#!/bin/sh
+# Blocks commits that contain secrets. Enabled by `pnpm install` (core.hooksPath=.githooks).
+# Bypass only if you are certain: git commit --no-verify
+fail=0
+
+# 1. Secret-bearing files.
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+bad_files=$(printf '%s\n' "$files" | grep -E '(^|/)\.env($|\.)|\.(pem|key|p12)$|(^|/)id_rsa' | grep -vE '(^|/)\.env\.example$')
+if [ -n "$bad_files" ]; then
+  echo "pre-commit: refusing to commit secret files:"; printf '  %s\n' $bad_files; fail=1
+fi
+
+# 2. Secret-looking values in added lines.
+added=$(git diff --cached -U0 --diff-filter=ACMR -- . ':(exclude)pnpm-lock.yaml' | grep -E '^\+[^+]')
+hits=$(printf '%s\n' "$added" | grep -nE \
+  -e '(MINIMAX_API_KEY|CONTACT_ENC_KEY|SMTP_PASS|ADMIN_PASSWORD|API_KEY|SECRET)[A-Z_]*=[[:space:]]*["'"'"']?[A-Za-z0-9+/_.-]{12,}' \
+  -e '(MINIMAX_API_KEY|CONTACT_ENC_KEY|SMTP_PASS|ADMIN_PASSWORD|API_KEY|SECRET)[A-Z_]*:[[:space:]]*["'"'"'][A-Za-z0-9+/_.-]{12,}' \
+  -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
+  -e '\b(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{10,})')
+if [ -n "$hits" ]; then
+  echo "pre-commit: possible secrets in staged changes:"; printf '%s\n' "$hits" | cut -c1-160 | sed 's/^/  /'; fail=1
+fi
+
+[ $fail -eq 0 ] || { echo "Move secrets to .env (gitignored). Commit aborted."; exit 1; }
