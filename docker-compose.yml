@@ -3,7 +3,8 @@ x-runtime: &runtime
   restart: unless-stopped
   read_only: true
   cap_drop: [ALL]
-  cap_add: [SETUID, SETGID]
+  # Read owner-only Linux secret binds, then start the application as UID 1000.
+  cap_add: [SETUID, SETGID, DAC_READ_SEARCH]
   security_opt: [no-new-privileges:true]
   tmpfs: ["/tmp:size=256m,mode=1777"]
   pids_limit: 200

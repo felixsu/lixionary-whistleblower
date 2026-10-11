@@ -1,0 +1,27 @@
+# Dedicated small subnets avoid exhausting the shared VPS's default /16 pool.
+# Verified against the host routes and existing Docker networks before install.
+networks:
+  case-db:
+    ipam:
+      config: [{ subnet: 10.245.95.0/28 }]
+  private-db:
+    ipam:
+      config: [{ subnet: 10.245.95.16/28 }]
+  services:
+    ipam:
+      config: [{ subnet: 10.245.95.32/28 }]
+  edge:
+    ipam:
+      config: [{ subnet: 10.245.95.48/28 }]
+  conversion:
+    ipam:
+      config: [{ subnet: 10.245.95.64/28 }]
+  delivery:
+    ipam:
+      config: [{ subnet: 10.245.95.80/28 }]
+  signature-updates:
+    ipam:
+      config: [{ subnet: 10.245.95.96/28 }]
+  case-db-access:
+    ipam:
+      config: [{ subnet: 10.245.95.112/28 }]

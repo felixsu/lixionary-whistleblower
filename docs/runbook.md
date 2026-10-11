@@ -48,8 +48,10 @@ git checkout main
 git pull --ff-only origin main
 SUITE_CONFIG_DIR=.suite-config SUITE_DOMAIN=whistle-blower.lixionary.com \
   node scripts/setup-suite.mjs --production
-COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .suite-config/suite.env build
-docker compose --env-file .suite-config/suite.env up -d --no-build --wait --wait-timeout 600
+COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
+  --env-file .suite-config/suite.env build
+docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
+  --env-file .suite-config/suite.env up -d --no-build --wait --wait-timeout 600
 ```
 
 When Node is unavailable on the host, run setup using `docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" -e SUITE_CONFIG_DIR=.suite-config -e SUITE_DOMAIN=whistle-blower.lixionary.com node:24-slim node scripts/setup-suite.mjs --production`.
@@ -65,18 +67,20 @@ sudo install -m 644 deploy/nginx/whistle-blower.lixionary.com.conf \
 sudo nginx -t && sudo systemctl reload nginx
 sudo install -m 755 deploy/nginx/renew-whistle-blower.sh \
   /etc/letsencrypt/renewal-hooks/deploy/whistle-blower-nginx
-sudo certbot renew --cert-name whistle-blower.lixionary.com --dry-run
+sudo certbot renew --cert-name whistle-blower.lixionary.com --dry-run --no-random-sleep-on-renew
 ```
 
 The configuration forwards `/api/` directly to backend 9550 and other requests to frontend 9551, including the private API rewrite. nginx overwrites incoming forwarding headers; Next preserves that single client address for the private service. It disables access logging, buffering and caching, blocks internal endpoints, and sets security headers. Keep Certbot's renewal timer enabled and a deploy hook that tests/reloads nginx after renewal. Back up an existing site configuration before replacing it. The shared VPS needs capacity monitoring, especially for ClamAV and concurrent document conversion.
 
 Fresh production databases contain no test accounts or company setup. Bootstrap the administrator, enroll MFA, configure the teams/policy/retention, and supply real delivery and offsite-backup credentials before operational use.
 
+Keep `deploy/compose.vps.yml` included for this host. It assigns eight `/28` networks within `10.245.95.0/24`, avoiding the exhausted default Docker address pool without modifying other projects. Recheck host routes and Docker subnets before reusing the override elsewhere. Do not prune unrelated networks to make space.
+
 ## Access and secrets
 
 `case-api` receives the case keyring and case database credential, but no private vault key, database credential or volume. `privacy-api` and `privacy-worker` receive the private keyring/database/vault, but no case keyring or case database access. The converter receives neither database nor vault secrets, runs as UID 1000, and has only the internal conversion network and a disposable filesystem. Private operations require an Ed25519 capability and live reporter-session introspection; callbacks require time-bound HMAC signatures.
 
-Migrate services use database owners. Runtime roles are `wb_case` and `wb_private`; they do not own schemas. The case role cannot rewrite audit events or anchors. A small root entrypoint reads protected Docker secret files and starts the actual application process as UID/GID 1000. The entrypoint has no HTTP surface. Restrict operator access to Docker and key files; application-role isolation does not conceal data from an operator controlling the host and both key stores.
+Migrate services use database owners. Runtime roles are `wb_case` and `wb_private`; they do not own schemas. The case role cannot rewrite audit events or anchors. A small root entrypoint has `DAC_READ_SEARCH` to read owner-only Linux secret binds, then starts the actual application process as UID/GID 1000 without those capabilities. The entrypoint has no HTTP surface. Web and converter containers do not receive this capability. Restrict operator access to Docker and key files; application-role isolation does not conceal data from an operator controlling the host and both key stores.
 
 Disable departing staff in administration and remove team memberships. This revokes their sessions/tokens and case access. Review membership and MFA enrollment regularly. Preserve at least one active administrator and two managers in each configured team. A staff member who loses all MFA recovery factors needs an approved operator identity-verification procedure; there is no application bypass endpoint.
 
