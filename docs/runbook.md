@@ -38,6 +38,40 @@ The backend listens on 9550 and the frontend on 9551. Compose publishes these po
 
 Build/test/scan exact release images in CI, record their digests with the revision, and deploy those digests in a production override. The supplied `:local` image tags are a local-build default, not an immutable release identity. Do not automatically overwrite production from every branch push. Before upgrading, take a verified offsite backup; apply migrations once through the separate migrate services, then recreate runtime services. Migrations are forward-only; roll back a release by restoring into a separate project, not by running older binaries against an incompatible schema.
 
+## VPS with system nginx
+
+The configured target is `lixsu@lixionary.com`, checkout `/app/lixionary-whistleblower`, public URL `https://whistle-blower.lixionary.com`. Use native nginx and Certbot on this host. Start Compose **without** `--profile production`: that profile starts Caddy and would conflict with nginx's 80/443 listeners. The application environment must still set `SUITE_NODE_ENV=production` and the public HTTPS URL.
+
+```sh
+cd /app/lixionary-whistleblower
+git checkout main
+git pull --ff-only origin main
+SUITE_CONFIG_DIR=.suite-config SUITE_DOMAIN=whistle-blower.lixionary.com \
+  node scripts/setup-suite.mjs --production
+COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .suite-config/suite.env build
+docker compose --env-file .suite-config/suite.env up -d --no-build --wait --wait-timeout 600
+```
+
+When Node is unavailable on the host, run setup using `docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" -e SUITE_CONFIG_DIR=.suite-config -e SUITE_DOMAIN=whistle-blower.lixionary.com node:24-slim node scripts/setup-suite.mjs --production`.
+
+For the first certificate, install `deploy/nginx/whistle-blower.http.conf` as `/etc/nginx/sites-available/whistle-blower.lixionary.com.conf`, enable the matching symlink in `sites-enabled`, create `/var/lib/letsencrypt/.well-known/acme-challenge`, then run `sudo nginx -t` and reload nginx. Verify the challenge URL from outside the VPS. Issue the certificate using the existing Certbot account:
+
+```sh
+sudo certbot certonly --webroot -w /var/lib/letsencrypt \
+  --cert-name whistle-blower.lixionary.com -d whistle-blower.lixionary.com \
+  --non-interactive --account '<existing-production-account-id>'
+sudo install -m 644 deploy/nginx/whistle-blower.lixionary.com.conf \
+  /etc/nginx/sites-available/whistle-blower.lixionary.com.conf
+sudo nginx -t && sudo systemctl reload nginx
+sudo install -m 755 deploy/nginx/renew-whistle-blower.sh \
+  /etc/letsencrypt/renewal-hooks/deploy/whistle-blower-nginx
+sudo certbot renew --cert-name whistle-blower.lixionary.com --dry-run
+```
+
+The configuration forwards `/api/` directly to backend 9550 and other requests to frontend 9551, including the private API rewrite. nginx overwrites incoming forwarding headers; Next preserves that single client address for the private service. It disables access logging, buffering and caching, blocks internal endpoints, and sets security headers. Keep Certbot's renewal timer enabled and a deploy hook that tests/reloads nginx after renewal. Back up an existing site configuration before replacing it. The shared VPS needs capacity monitoring, especially for ClamAV and concurrent document conversion.
+
+Fresh production databases contain no test accounts or company setup. Bootstrap the administrator, enroll MFA, configure the teams/policy/retention, and supply real delivery and offsite-backup credentials before operational use.
+
 ## Access and secrets
 
 `case-api` receives the case keyring and case database credential, but no private vault key, database credential or volume. `privacy-api` and `privacy-worker` receive the private keyring/database/vault, but no case keyring or case database access. The converter receives neither database nor vault secrets, runs as UID 1000, and has only the internal conversion network and a disposable filesystem. Private operations require an Ed25519 capability and live reporter-session introspection; callbacks require time-bound HMAC signatures.
