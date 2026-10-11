@@ -57,7 +57,15 @@ Production acceptance still requires the company's real SMTP/Twilio delivery, pr
 | Actual runtime isolation                                                              | UID 1000 application processes; case runtime audit mutation denied; each API lacks the other service's database credential and data key |
 | Production dependency audit                                                           | No known vulnerabilities reported by `pnpm audit --prod --audit-level high`                                                             |
 
-These results are local evidence for this working tree. GitHub CI and production deployment have not been run. The SMTP outage test used Mailpit; real SMTP/Twilio/MiniMax and the company's actual offsite destination still require the acceptance checks in the runbook. Restore/key/deletion drills used disposable synthetic data and did not modify the MVP volumes.
+These results describe local implementation checks. The SMTP outage test used Mailpit; real SMTP/Twilio/MiniMax and the company's actual offsite destination still require the acceptance checks in the runbook. Restore/key/deletion drills used disposable synthetic data and did not modify the MVP volumes.
+
+## VPS installation — 11 October 2026
+
+The suite was installed from `main` at `/app/lixionary-whistleblower` on `lixsu@lixionary.com`, with system nginx at <https://whistle-blower.lixionary.com>. Let’s Encrypt certificate issuance, the renewal dry run and nginx reload hook passed. The certificate expires on 9 January 2027. Both public API health endpoints and the homepage/staff login returned HTTP 200 with verified TLS; HTTP redirects to HTTPS. nginx blocks internal routes, disables request logging and normalizes forwarded headers.
+
+Backend 9550, frontend 9551 and case PostgreSQL 9552 were verified bound exclusively to loopback. Authenticated database access through 9552, signed private-service calls and audit-chain verification passed. Both APIs run as UID 1000 with zero effective capabilities and lack the other service's database credential/key. ClamAV is healthy. One administrator was bootstrapped, no reports or test fixtures were imported, and company intake remains disabled until configuration is complete.
+
+This verifies installation and isolation, not completed operational onboarding. The owner still needs MFA enrollment, team/policy/retention configuration, real delivery credentials, offsite backup and the runbook's provider/restore acceptance checks. The shared 8 GB VPS had roughly 1 GB available after startup; document conversion capacity requires monitoring. GitHub CI status is separate from these directly observed VPS checks.
 
 ## Limits to communicate honestly
 

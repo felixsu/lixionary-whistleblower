@@ -76,6 +76,8 @@ Fresh production databases contain no test accounts or company setup. Bootstrap 
 
 Keep `deploy/compose.vps.yml` included for this host. It assigns eight `/28` networks within `10.245.95.0/24`, avoiding the exhausted default Docker address pool without modifying other projects. Recheck host routes and Docker subnets before reusing the override elsewhere. Do not prune unrelated networks to make space.
 
+nginx proxy directives follow the [official proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html); certificate issuance and renewal use [Certbot's webroot workflow](https://eff-certbot.readthedocs.io/en/stable/using.html#webroot).
+
 ## Access and secrets
 
 `case-api` receives the case keyring and case database credential, but no private vault key, database credential or volume. `privacy-api` and `privacy-worker` receive the private keyring/database/vault, but no case keyring or case database access. The converter receives neither database nor vault secrets, runs as UID 1000, and has only the internal conversion network and a disposable filesystem. Private operations require an Ed25519 capability and live reporter-session introspection; callbacks require time-bound HMAC signatures.
