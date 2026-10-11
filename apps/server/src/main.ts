@@ -1,34 +1,34 @@
+import { createClient } from "redis";
+import { redisLimiter, safeError } from "@whistle/runtime";
 import { loadEnvFiles } from "./lib/env.js";
 import { loadConfig } from "./config.js";
-import { createDb } from "./db/client.js";
-import { runMigrations } from "./db/migrate.js";
-import { createMinimaxClient } from "./ai/minimax.js";
-import { createDiskStorage } from "./lib/storage.js";
-import { createMailer } from "./notify/mailer.js";
-import { startBackgroundJobs } from "./notify/outbox.js";
+import { sql } from "drizzle-orm";
+import { createDb, rows } from "./db/client.js";
 import { buildApp } from "./app.js";
-
+import { startJobs } from "./jobs.js";
 loadEnvFiles();
 const config = loadConfig();
-
-await runMigrations(config.databaseUrl);
-const { db, close } = createDb(config.databaseUrl);
-const ai = createMinimaxClient(config.ai);
-const storage = createDiskStorage(config.uploadDir);
-const app = await buildApp({ config, db, ai, storage });
-
-const mailer = createMailer(config.mail, (msg) => app.log.info(msg));
-const stopJobs = startBackgroundJobs({ db, mailer, storage, webUrl: config.publicWebUrl, log: app.log });
-
-if (!ai.enabled) app.log.warn("MINIMAX_API_KEY is not set: the AI assistant is disabled and reporters will use the form.");
-
-const shutdown = async () => {
-  stopJobs();
-  await app.close();
-  await close();
-  process.exit(0);
-};
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
+const { db, close } = createDb(config.dbUrl);
+const redis = createClient({ url: config.redisUrl });
+redis.on("error", () => console.error("rate limit store unavailable"));
+await redis.connect();
+const app = await buildApp({ config, db, limiter: redisLimiter(redis) });
+app.get("/api/health", async () => {
+  await redis.ping();
+  await rows(db, sql`select 1`);
+  return { ok: true };
+});
+const stop = startJobs(db, config, app.log);
+for (const signal of ["SIGINT", "SIGTERM"])
+  process.on(signal, () => {
+    void (async () => {
+      stop();
+      await app.close();
+      await close();
+      await redis.quit();
+    })().catch((e) => {
+      console.error(safeError(e));
+      process.exitCode = 1;
+    });
+  });
 await app.listen({ host: config.host, port: config.port });

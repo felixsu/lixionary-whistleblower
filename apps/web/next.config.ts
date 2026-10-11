@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
-const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:6400";
+const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:9550";
+const privacyOrigin = process.env.PRIVACY_ORIGIN ?? "http://127.0.0.1:6405";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 const nextConfig: NextConfig = {
@@ -11,7 +12,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Same-origin API: the browser only ever talks to this app, so admin cookies stay first-party.
   async rewrites() {
-    return [{ source: "/api/:path*", destination: `${apiOrigin}/api/:path*` }];
+    return [{ source: "/api/:path*", destination: `${apiOrigin}/api/:path*` }, { source: "/privacy/:path*", destination: `${privacyOrigin}/privacy/:path*` }];
   },
   async headers() {
     return [

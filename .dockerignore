@@ -4,3 +4,14 @@
 **/data
 .env
 .git
+
+.suite-dev
+.suite-config*
+secrets
+playwright-report
+test-results
+.env.*
+!.env.example
+**/*.pem
+**/*.key
+**/secrets

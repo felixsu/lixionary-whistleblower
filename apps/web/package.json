@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --port 6401",
+    "dev": "next dev --port 9551",
     "build": "next build",
-    "start": "next start --port 6401",
-    "typecheck": "tsc --noEmit"
+    "start": "next start --port 9551",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",
@@ -20,10 +20,12 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "otplib": "^13.5.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3"
   }

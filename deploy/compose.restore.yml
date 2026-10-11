@@ -1,0 +1,11 @@
+# Restore drills must never claim the live application's host ports.
+# Include this override when operating a restored project (Compose >= 2.24.4).
+services:
+  case-db:
+    ports: !reset []
+  case-api:
+    ports: !reset []
+  web:
+    ports: !reset []
+  caddy:
+    ports: !reset []

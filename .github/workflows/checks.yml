@@ -1,0 +1,59 @@
+name: Suite checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: suite-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/test-db.mjs
+      - run: docker run -d --name whistle-suite-test-db --env-file .suite-dev/postgres.env -p 127.0.0.1:6412:5432 postgres:17-alpine
+      - name: Wait for test database
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker exec whistle-suite-test-db pg_isready -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm audit --prod --audit-level high
+  container-acceptance:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm suite:setup && pnpm suite:dev
+      - name: Wait for application
+        run: |
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:9551/api/health >/dev/null; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+      - run: node scripts/seed-browser.mjs
+      - run: pnpm --filter @whistle/web exec playwright install --with-deps chromium
+      - run: pnpm test:browser
+      - run: node scripts/evidence-smoke.mjs
+      - if: always()
+        run: docker compose --env-file .suite-dev/suite.env --profile development down

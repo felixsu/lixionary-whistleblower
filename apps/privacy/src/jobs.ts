@@ -1,0 +1,341 @@
+import { randomUUID, createHash } from "node:crypto";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import nodemailer from "nodemailer";
+import twilio from "twilio";
+import { sql } from "drizzle-orm";
+import { seal, unseal, safeError } from "@whistle/runtime";
+import type { CompanySettings } from "@whistle/shared";
+import type { Db } from "./db/client.js";
+import { rows } from "./db/client.js";
+import type { Config } from "./config.js";
+import {
+  caseCall,
+  fileBytes,
+  store,
+  removeFiles,
+  queueVerification,
+  PrivacyError,
+  evidenceAudit,
+} from "./service.js";
+const run = promisify(execFile);
+export function startJobs(
+  db: Db,
+  config: Config,
+  log: { error: (o: unknown, s: string) => void },
+) {
+  let busy = false,
+    stopped = false;
+  const mail = nodemailer.createTransport({
+    ...config.smtp,
+    auth: config.smtp.user
+      ? { user: config.smtp.user, pass: config.smtp.pass }
+      : undefined,
+    connectionTimeout: 10000,
+    socketTimeout: 20000,
+  });
+  const sms =
+    config.twilio.sid && config.twilio.token
+      ? twilio(config.twilio.sid, config.twilio.token, { timeout: 20000 })
+      : null;
+  async function deliver(destination: string, kind: string, text: string) {
+    if (kind === "email")
+      await mail.sendMail({
+        from: config.smtp.from,
+        to: destination,
+        subject: "Private reporting portal",
+        text,
+      });
+    else {
+      if (!sms || !config.twilio.from) throw new Error("sms_not_configured");
+      await sms.messages.create({
+        to: destination,
+        from: config.twilio.from,
+        body: text,
+      });
+    }
+  }
+  async function tick() {
+    if (busy || stopped) return;
+    busy = true;
+    try {
+      const [j] = await rows(
+        db,
+        sql`update delivery_jobs set lease_at=now(),attempts=attempts+1 where id=(select id from delivery_jobs where sent_at is null and next_at<=now() and (lease_at is null or lease_at<now()-interval '5 minutes') order by next_at for update skip locked limit 1) returning *`,
+      );
+      if (j) {
+        try {
+          const b = unseal<Record<string, unknown>>(
+            String(j.body_enc),
+            config.keys,
+            `job:${j.id}`,
+          );
+          if (j.kind === "otp") {
+            if (Number(b.expiresAt) > Date.now())
+              await deliver(
+                String(b.destination),
+                String(b.kind),
+                b.locale === "id"
+                  ? `Kode verifikasi Anda adalah ${b.code}. Berlaku 5 menit. Jangan bagikan kode kepada staf.`
+                  : `Your verification code is ${b.code}. It expires in 5 minutes. Never share it with staff.`,
+              );
+          } else if (j.kind === "event") await caseCall(config, "events", b);
+          else if (j.kind === "notify") {
+            const s = (await (
+              await caseCall(config, "configuration", {})
+            ).json()) as { settings: CompanySettings };
+            const contacts = await rows(
+              db,
+              sql`select * from contacts where case_id=${j.case_id} and verified_at is not null and notifications`,
+            );
+            for (const c of contacts)
+              await deliver(
+                unseal<string>(
+                  String(c.destination_enc),
+                  config.keys,
+                  `contact:${c.id}`,
+                ),
+                String(c.kind),
+                `${s.settings.notificationTemplates[c.locale === "id" ? "id" : "en"]}\n${config.webUrl}/case`,
+              );
+          } else if (j.kind === "publish") {
+            await db.transaction(async (tx) => {
+              const [f] = await rows(
+                tx,
+                sql`select * from files where id=${b.evidenceId} and status in ('approved','published') for update`,
+              );
+              if (!f) return;
+              try {
+                await caseCall(config, "events", {
+                  id: String(j.id),
+                  kind: "evidence",
+                  caseId: f.case_id,
+                  evidenceId: f.id,
+                  label: "Evidence",
+                  mime: f.mime,
+                  size: Number(f.size),
+                  sha256: f.sha256,
+                  originalSha256: f.original_sha256,
+                  transformation: f.transformation,
+                });
+                await rows(
+                  tx,
+                  sql`update files set status='published',published_at=now() where id=${f.id}`,
+                );
+              } catch (e) {
+                if (e instanceof PrivacyError && e.code === "case_closed")
+                  await rows(
+                    tx,
+                    sql`update files set status='review',approved_at=null where id=${f.id}`,
+                  );
+                else throw e;
+              }
+            });
+          } else throw new Error("unknown_job");
+          await rows(
+            db,
+            sql`update delivery_jobs set sent_at=now(),lease_at=null,body_enc=${seal({}, config.keys, `job:${j.id}`)} where id=${j.id} and lease_at=${j.lease_at}`,
+          );
+        } catch (e) {
+          await rows(
+            db,
+            sql`update delivery_jobs set lease_at=null,next_at=now()+${Math.min(3600, 2 ** Math.min(Number(j.attempts), 11))}*interval '1 second',error_code='delivery_failed' where id=${j.id} and lease_at=${j.lease_at}`,
+          );
+          log.error(safeError(e), "private delivery failed");
+        }
+      }
+      const [f] = await rows(
+        db,
+        sql`update files set lease_at=now() where id=(select id from files where status='quarantined' and (lease_at is null or lease_at<now()-interval '5 minutes') order by created_at for update skip locked limit 1) returning *`,
+      );
+      if (f) {
+        const dir = await mkdtemp(join(tmpdir(), "wb-scan-"));
+        try {
+          const original = await fileBytes(config, String(f.id), "original"),
+            path = join(dir, "upload");
+          await writeFile(path, original, { mode: 0o600 });
+          await run(config.scanner, ["--stream", "--no-summary", path], {
+            timeout: 60000,
+            maxBuffer: 65536,
+          });
+          const response = await fetch(
+            `${process.env.CONVERTER_ORIGIN ?? "http://127.0.0.1:6406"}/convert`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/octet-stream" },
+              body: new Uint8Array(original),
+              signal: AbortSignal.timeout(150000),
+            },
+          );
+          if (!response.ok) throw new Error("conversion_failed");
+          const r = (await response.json()) as {
+            data: string;
+            mime: string;
+            pages: number;
+            transformation: string;
+          };
+          const bytes = Buffer.from(r.data, "base64");
+          if (bytes.length > 50000000) throw new Error("size_limit");
+          const derivative = await store(
+            config,
+            String(f.id),
+            "derivative",
+            bytes,
+          );
+          await rows(
+            db,
+            sql`update files set status='review',derivative_path=${derivative},mime=${r.mime},size=${bytes.length},sha256=${createHash("sha256").update(bytes).digest("hex")},pages=${r.pages},transformation=${r.transformation},scanned_at=now(),scan_version=${String(
+              (
+                await run(config.scanner, ["--version"], {
+                  timeout: 10000,
+                  maxBuffer: 4096,
+                })
+              ).stdout,
+            )
+              .trim()
+              .slice(
+                0,
+                200,
+              )},lease_at=null where id=${f.id} and lease_at=${f.lease_at}`,
+          );
+          await evidenceAudit(
+            db,
+            config,
+            String(f.case_id),
+            String(f.id),
+            "evidence_scanned",
+            createHash("sha256").update(bytes).digest("hex"),
+          );
+        } catch (e) {
+          await rows(
+            db,
+            sql`update files set status='rejected',error_code='scan_or_conversion_failed',lease_at=null where id=${f.id} and lease_at=${f.lease_at}`,
+          );
+          await evidenceAudit(
+            db,
+            config,
+            String(f.case_id),
+            String(f.id),
+            "evidence_rejected",
+          );
+          log.error(safeError(e), "evidence rejected");
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+      }
+    } catch (e) {
+      log.error(safeError(e), "private job claim failed");
+    } finally {
+      busy = false;
+    }
+  }
+  const timer = setInterval(() => void tick(), 2000);
+  timer.unref();
+  void tick();
+  const retention = setInterval(
+    () =>
+      void expire(db, config).catch((e) =>
+        log.error(safeError(e), "private retention failed"),
+      ),
+    60000,
+  );
+  retention.unref();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    clearInterval(retention);
+    mail.close();
+  };
+}
+export async function expire(db: Db, config: Config) {
+  const info = (await (await caseCall(config, "retention", {})).json()) as {
+    settings: CompanySettings;
+    configured: boolean;
+    held: { id: string }[];
+    deleted: { case_id: string }[];
+  };
+  if (!info.configured || !info.settings.retention) return;
+  const held = info.held.map((x) => x.id);
+  const allowed = (column: string) =>
+    held.length
+      ? sql`${sql.identifier(column)} not in (${sql.join(
+          held.map((x) => sql`${x}`),
+          sql`,`,
+        )})`
+      : sql`true`;
+  const r = info.settings.retention;
+  for (const kind of ["contacts", "transcripts", "evidence"] as const) {
+    const table =
+      kind === "transcripts"
+        ? "intakes"
+        : kind === "evidence"
+          ? "files"
+          : "contacts";
+    const candidates = await rows(
+      db,
+      sql`select id,case_id,created_at from ${sql.identifier(table)} where case_id is not null and created_at<now()-${r[kind]}*interval '1 day' and ${allowed("case_id")} limit 100`,
+    );
+    for (const row of candidates) {
+      const lease = (await (
+        await caseCall(config, "retention/lease", {
+          caseId: row.case_id,
+          kind,
+          createdAt: new Date(String(row.created_at)).toISOString(),
+        })
+      ).json()) as { allowed: boolean; lease: string };
+      if (!lease.allowed) continue;
+      const deleted = await db.transaction(async (tx) => {
+        const [current] = await rows(
+          tx,
+          sql`select id from ${sql.identifier(table)} where id=${row.id} and created_at=${row.created_at} and created_at<now()-${r[kind]}*interval '1 day' ${kind === "evidence" ? sql`and (lease_at is null or lease_at<now()-interval '5 minutes')` : sql``} for update skip locked`,
+        );
+        if (!current) return false;
+        if (kind === "evidence") await removeFiles(config, String(row.id));
+        await rows(
+          tx,
+          sql`delete from ${sql.identifier(table)} where id=${row.id}`,
+        );
+        if (kind === "contacts")
+          await queueVerification(tx, config, String(row.case_id));
+        return true;
+      });
+      await caseCall(config, "retention/release", {
+        caseId: row.case_id,
+        lease: lease.lease,
+        ...(deleted && kind === "evidence"
+          ? { evidenceId: row.id }
+          : deleted && kind === "contacts"
+            ? { contactRemoved: true }
+            : {}),
+      });
+    }
+  }
+  // Reservations can survive a failed main-database transaction. Reconcile
+  // through the signed service boundary; a service outage preserves data.
+  const reservations = await rows(
+    db,
+    sql`select id,case_id from intakes where case_id is not null and created_at<now()-interval '24 hours' limit 100`,
+  );
+  for (const i of reservations) {
+    const result = (await (
+      await caseCall(config, "case-exists", { caseId: i.case_id })
+    ).json()) as { exists: boolean };
+    if (!result.exists)
+      await rows(db, sql`delete from intakes where id=${i.id}`);
+  }
+  await rows(
+    db,
+    sql`delete from intakes where case_id is null and created_at<now()-interval '24 hours'`,
+  );
+  await rows(
+    db,
+    sql`delete from challenges where expires_at<now()-interval '1 day'`,
+  );
+  await rows(
+    db,
+    sql`delete from delivery_jobs where sent_at<now()-interval '7 days'`,
+  );
+}

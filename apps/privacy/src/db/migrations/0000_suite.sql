@@ -1,0 +1,10 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+--> statement-breakpoint
+CREATE TABLE contacts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),case_id uuid NOT NULL,kind text NOT NULL CHECK(kind IN ('email','phone')),destination_enc text NOT NULL,destination_hash text NOT NULL,verified_at timestamptz,notifications boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(case_id,kind));
+CREATE TABLE challenges(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),case_id uuid NOT NULL,contact_id uuid NOT NULL REFERENCES contacts ON DELETE CASCADE,code_hash text NOT NULL,attempts integer NOT NULL DEFAULT 0,expires_at timestamptz NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),used_at timestamptz);
+CREATE TABLE intakes(id uuid PRIMARY KEY,token_hash text NOT NULL,case_id uuid UNIQUE,locale text NOT NULL,consent_version integer NOT NULL,consented_at timestamptz NOT NULL DEFAULT now(),transcript_enc text NOT NULL,revoked_at timestamptz,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE files(id uuid PRIMARY KEY,case_id uuid NOT NULL,status text NOT NULL DEFAULT 'quarantined',original_path text NOT NULL,original_sha256 text NOT NULL,mime text,derivative_path text,sha256 text,size integer,transformation text,pages integer,error_code text,lease_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),approved_at timestamptz,published_at timestamptz);
+CREATE TABLE delivery_jobs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),kind text NOT NULL,case_id uuid,body_enc text NOT NULL,attempts integer NOT NULL DEFAULT 0,next_at timestamptz NOT NULL DEFAULT now(),lease_at timestamptz,sent_at timestamptz,error_code text,created_at timestamptz NOT NULL DEFAULT now(),dedupe text UNIQUE);
+CREATE INDEX privacy_jobs_due ON delivery_jobs(next_at) WHERE sent_at IS NULL;
+CREATE TABLE service_receipts(id uuid PRIMARY KEY,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE erased_cases(case_id uuid PRIMARY KEY,created_at timestamptz NOT NULL DEFAULT now());

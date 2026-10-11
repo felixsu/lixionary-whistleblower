@@ -19,3 +19,7 @@ secrets/
 data/
 *.dump
 *.sql.gz
+.suite-dev/
+playwright-report/
+test-results/
+.suite-config*/

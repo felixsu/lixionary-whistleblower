@@ -1,85 +1,68 @@
-# Lixionary Whistleblower ("Speak Up")
+# Speak Up — company whistleblowing suite
 
-A confidential reporting channel. Reporters submit concerns **without an account**. They leave an email address or phone number so the review team can follow up. A **MiniMax M3** assistant interviews the reporter before submission to fill gaps in incomplete reports. Admins then review, message the reporter, reveal contact details when needed, and track each case to closure.
+An accountless reporting portal with anonymous submission, a private case mailbox, optional email/phone verification, assigned investigators, independent closure approval, and company administration. English and Indonesian interfaces are included.
 
-```
-apps/server     Fastify 5 API · Drizzle ORM · PostgreSQL · MiniMax client
-apps/web        Next.js 16 (App Router) · Tailwind v4 · TanStack Query
-packages/shared zod schemas + types used by both
-```
+Reporter contacts and raw assistant conversations live in a separate service, database, encryption keyring, and file vault. Analysts, managers, and system administrators have no contact-reveal endpoint. OTP proves control of a contact destination; it does not prove a person's legal identity. Reporters review their narrative and sanitized evidence before staff receive them.
 
-## Quick start
+`main` contains the new suite. `main-mvp` preserves the original MVP without the gap assessment. This implementation starts with **new suite databases and volumes**; it does not migrate or import MVP reports.
 
-Requirements: Node ≥ 24, pnpm 11, Docker.
+## Run locally
+
+Requirements: Node 24+, pnpm 11.9, Docker Compose, and enough Docker memory for PostgreSQL, ClamAV, and document conversion (allow at least 6 GB).
 
 ```sh
-cp .env.example .env
-# set CONTACT_ENC_KEY (openssl rand -base64 32) and MINIMAX_API_KEY
-docker compose up -d              # postgres :6402, mailpit UI :6403 / SMTP :6404
-pnpm install
-pnpm db:migrate                   # also runs automatically on server start
-pnpm admin:create --email you@example.com --name "Integrity Team"   # prompts for password (≥12 chars)
-pnpm dev                          # API :6400, web :6401
+pnpm install --frozen-lockfile
+pnpm suite:setup
+pnpm suite:dev
 ```
 
-Then open:
-- Reporter site: http://localhost:6401
-- Review console: http://localhost:6401/admin
-- Dev mailbox for admin notifications: http://localhost:6403
+Open the portal at <http://localhost:9551> and the development mailbox at <http://localhost:6403>. The backend is available at `127.0.0.1:9550`; the case database at `127.0.0.1:9552` maps to PostgreSQL's container port 5432. These host ports bind only to localhost. The separate identity database has no published port. The first scanner startup downloads antivirus signatures and can take several minutes. On ARM hosts, the scanner uses the official AMD64 image through Docker emulation.
 
-To run the full stack in containers, use `docker compose --profile app up --build`.
+Create the first administrator only on an empty staff table:
 
-## How it works
-
-### Reporter flow
-1. **Intro.** The reporter consents to AI processing, or chooses the plain form instead.
-2. **Chat.** The MiniMax assistant streams its replies over SSE and asks at most two questions per turn. It covers what, who, when, where, how the reporter knows, evidence, impact, and whether the problem is ongoing.
-   - Every two turns, the server asks the model for a structured draft, a 0–100 **completeness** score and a list of **open questions**. These appear live in a side panel.
-   - When the assistant decides the key facts are covered, it emits `[[READY]]`. The server strips this marker and highlights "Review draft".
-3. **Review.** The reporter edits the structured draft. No AI text is submitted unless the reporter has seen it.
-4. **Contact and evidence.** The reporter must give an email or a phone number. Evidence uploads are optional, up to 5 files of 10 MB each.
-5. **Done.** The reporter gets a **case code** (`WB-XXXX-XXXX`) and a **PIN**. The PIN is shown once and only its argon2id hash is stored. At `/status` the reporter can see progress and exchange messages with the review team.
-
-**If MiniMax is unavailable or no key is set,** reporters go straight to the form. Submission never depends on the AI.
-
-### Admin console
-The console provides:
-- A report list with filters for status, category, date and keyword, plus completeness and unread-reply badges.
-- A report detail page that shows:
-  - the structured report;
-  - the AI's open questions;
-  - the full intake transcript;
-  - evidence downloads;
-  - a two-way message thread;
-  - internal notes;
-  - status workflow: `new → under_review → need_info → valid → contacted → closed_*`;
-  - an activity log.
-- **Reveal contact details**, which decrypts the reporter's email and phone on demand. Every reveal, status change, message and download is written to `audit_log`.
-
-## Privacy and security measures
-- Contact details are encrypted with **AES-256-GCM** (`CONTACT_ENC_KEY`). The stored format `v1:iv:tag:ct` leaves room for key rotation.
-- **No IP addresses are stored or logged.** The request log records only the method and path. Rate limits are kept in memory.
-- Images are re-encoded with `sharp`, which removes **EXIF/GPS metadata**. Uploads are checked by their magic bytes, not their file extension, and stored under random keys outside any web root.
-- Admin sessions use DB-backed `HttpOnly`, `SameSite=Strict` cookies that last 8 hours. Mutating requests also require an `x-csrf: 1` header. Passwords are hashed with argon2id.
-- Case lookup returns the same error, with the same timing, for an unknown case and a wrong PIN.
-- Admin emails contain only the case code and a link. No report content goes by email.
-- Abandoned intake sessions are deleted after 24 hours, together with their uploaded files.
-- The web app loads no third-party fonts or scripts. It sends `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`.
-
-## MiniMax configuration
-| Variable | Default | Notes |
-|---|---|---|
-| `MINIMAX_API_KEY` | — | Leave empty to disable the assistant. |
-| `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | OpenAI-compatible endpoint. |
-| `MINIMAX_MODEL` | `MiniMax-M3` | |
-| `MINIMAX_THINKING` | `disabled` | `adaptive` lets M3 reason first, which is slower. |
-
-Reporter messages are sent to MiniMax, a third party. The intro screen tells reporters this before they start.
-
-## Commands
 ```sh
-pnpm test          # server unit + integration tests (needs the compose postgres; uses a separate whistle_test DB)
+docker compose --env-file .suite-dev/suite.env run --rm --no-deps case-migrate \
+  node dist/cli/bootstrap.js you@example.com
+```
+
+Enter a password of at least 15 characters through stdin. Log in at `/staff/login`, enroll an authenticator, and save the single-use recovery codes. Invite two managers for the standard team and two different managers for the independent team, create those teams, and configure the company policy, categories, deadlines, and all six retention periods. Production submissions are unavailable until this setup is complete.
+
+Development SMTP goes to Mailpit. SMS requires Twilio credentials. AI requires a MiniMax key **and** the company AI setting; it is off by default. Generated secrets are file based, ignored by Git, and never printed by setup.
+
+## Workspace
+
+| Path               | Responsibility                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| `apps/server`      | Case API, staff MFA, authorization, workflow, audit, retention, durable case jobs      |
+| `apps/privacy`     | Private contacts and OTP, consented intake, sealed originals, scanning/conversion jobs |
+| `apps/web`         | Next.js reporting, private mailbox, staff and administration screens                   |
+| `packages/shared`  | Shared schemas, roles, states, company settings                                        |
+| `packages/runtime` | Encryption, capabilities, hashing, rate limits, assistant adapter                      |
+| `deploy`           | Container entrypoint, proxy policy, scanner configuration                              |
+| `scripts`          | Secret setup, synthetic tests, key rotation, offsite backup and isolated restore       |
+
+## Verify
+
+```sh
+node scripts/test-db.mjs
+docker run -d --name whistle-suite-test-db --env-file .suite-dev/postgres.env \
+  -p 127.0.0.1:6412:5432 postgres:17-alpine
 pnpm typecheck
+pnpm test
 pnpm build
-pnpm db:generate   # after editing apps/server/src/db/schema.ts
 ```
+
+Integration tests recreate only `whistle_suite_test` and `whistle_privacy_test` on this test database. Run one full integration test process at a time.
+
+For browser and real evidence-pipeline checks, start the development suite first:
+
+```sh
+node scripts/seed-browser.mjs
+pnpm --filter @whistle/web exec playwright install chromium
+pnpm test:browser
+node scripts/evidence-smoke.mjs
+```
+
+The browser seed refuses non-test staff accounts and production configuration. These scripts create synthetic reports and Mailpit messages. Do not run them against real company data.
+
+See [implementation and validation](docs/implementation.md), [deployment and operations](docs/runbook.md), and the [historical MVP gap assessment](docs/gaps.md).

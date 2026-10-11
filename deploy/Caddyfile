@@ -1,0 +1,23 @@
+{$SUITE_DOMAIN} {
+  encode zstd gzip
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    X-Frame-Options DENY
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; frame-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+  }
+  @internal path /internal/*
+  respond @internal 404
+  handle /api/* {
+    reverse_proxy case-api:9550
+  }
+  handle /privacy/* {
+    reverse_proxy privacy-api:6405
+  }
+  handle {
+    reverse_proxy web:9551
+  }
+  # Access logs are deliberately disabled for this sensitive public channel.
+}

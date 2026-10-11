@@ -1,5 +1,7 @@
 # Whistleblowing application: MVP gap assessment
 
+> Historical MVP assessment. For the suite now implemented on `main`, see [implementation and validation](implementation.md) and the [operations runbook](runbook.md). The original source is preserved on `main-mvp`.
+
 Assessment date: **11 October 2026**. Reviewed application revision: **`5a7cf34`**.
 
 This document records the assessment of the current Speak Up MVP against the intended company whistleblowing suite. Observed behavior describes the reviewed code; required behavior and acceptance criteria describe proposed work. It is a source review and product gap assessment, not a production security certification or a jurisdiction-specific compliance assessment.

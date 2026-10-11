@@ -1,24 +1,23 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { loadEnvFiles } from "../lib/env.js";
-import { createDb } from "./client.js";
-
-export const MIGRATIONS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "migrations");
-
-export async function runMigrations(url: string): Promise<void> {
-  const { db, close } = createDb(url);
+import postgres from "postgres";
+import { fileURLToPath } from "node:url";
+export async function runMigrations(url: string) {
+  const c = postgres(url, { max: 1 });
   try {
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    await migrate(drizzle(c), {
+      migrationsFolder: fileURLToPath(
+        new URL("./migrations/", import.meta.url),
+      ),
+    });
   } finally {
-    await close();
+    await c.end();
   }
 }
-
 if (import.meta.url === `file://${process.argv[1]}`) {
-  loadEnvFiles();
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
-  await runMigrations(url);
-  console.log("Migrations applied.");
+  if (!process.env.MIGRATION_DATABASE_URL)
+    throw new Error(
+      "MIGRATION_DATABASE_URL required; runtime must not own schema",
+    );
+  await runMigrations(process.env.MIGRATION_DATABASE_URL);
 }

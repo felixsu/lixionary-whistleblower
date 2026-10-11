@@ -1,46 +1,329 @@
+name: whistle-suite
+x-runtime: &runtime
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  cap_add: [SETUID, SETGID]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:size=256m,mode=1777"]
+  pids_limit: 200
+x-case-env: &case-env
+  NODE_ENV: ${SUITE_NODE_ENV:-production}
+  PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost}
+  HOST: 0.0.0.0
+  TRUST_PROXY: "1"
+  SUITE_DATABASE_URL_FILE: /run/secrets/case_database_url
+  CASE_KEYRING_FILE: /run/secrets/case_keyring
+  CAPABILITY_PRIVATE_KEY_FILE: /run/secrets/capability_private_key
+  SERVICE_EVENT_KEY_FILE: /run/secrets/service_event_key
+  ABUSE_KEY_FILE: /run/secrets/abuse_key
+  PRIVACY_ORIGIN: http://privacy-api:6405
+  REDIS_URL: redis://case-redis:6379
+  STAFF_SMTP_HOST: ${STAFF_SMTP_HOST:-mailpit}
+  STAFF_SMTP_PORT: ${STAFF_SMTP_PORT:-1025}
+  STAFF_SMTP_USER: ${STAFF_SMTP_USER:-}
+  STAFF_SMTP_PASS_FILE: /run/secrets/staff_smtp_pass
+  STAFF_SMTP_FROM: ${STAFF_SMTP_FROM:-Speak Up <no-reply@whistle.local>}
+x-private-env: &private-env
+  NODE_ENV: ${SUITE_NODE_ENV:-production}
+  PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost}
+  HOST: 0.0.0.0
+  TRUST_PROXY: "1"
+  PRIVACY_DATABASE_URL_FILE: /run/secrets/privacy_database_url
+  VAULT_KEYRING_FILE: /run/secrets/vault_keyring
+  CAPABILITY_PUBLIC_KEY_FILE: /run/secrets/capability_public_key
+  SERVICE_EVENT_KEY_FILE: /run/secrets/service_event_key
+  PRIVACY_ABUSE_KEY_FILE: /run/secrets/privacy_abuse_key
+  PRIVACY_REDIS_URL: redis://private-redis:6379
+  PRIVACY_STORAGE: /data/privacy
+  CASE_ORIGIN: http://case-api:9550
+  CONVERTER_ORIGIN: http://converter:6406
+  PRIVACY_SMTP_HOST: ${PRIVACY_SMTP_HOST:-mailpit}
+  PRIVACY_SMTP_PORT: ${PRIVACY_SMTP_PORT:-1025}
+  PRIVACY_SMTP_USER: ${PRIVACY_SMTP_USER:-}
+  PRIVACY_SMTP_PASS_FILE: /run/secrets/privacy_smtp_pass
+  PRIVACY_SMTP_FROM: ${PRIVACY_SMTP_FROM:-Speak Up <no-reply@whistle.local>}
+  TWILIO_ACCOUNT_SID_FILE: /run/secrets/twilio_sid
+  TWILIO_AUTH_TOKEN_FILE: /run/secrets/twilio_token
+  TWILIO_FROM: ${TWILIO_FROM:-}
+  MINIMAX_API_KEY_FILE: /run/secrets/minimax_api_key
 services:
-  postgres:
+  case-db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: whistle
-      POSTGRES_PASSWORD: whistle
-      POSTGRES_DB: whistle
-    ports:
-      - "127.0.0.1:6402:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+      {
+        POSTGRES_PASSWORD_FILE: /run/secrets/case_pg_password,
+        POSTGRES_DB: suite_cases,
+      }
+    secrets: [case_pg_password]
+    ports: ["127.0.0.1:9552:5432"]
+    networks: [case-db, case-db-access]
+    volumes: [suite-case-db:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U whistle"]
-      interval: 5s
-      retries: 10
-
+      {
+        test: ["CMD-SHELL", "pg_isready -U postgres -d suite_cases"],
+        interval: 5s,
+        retries: 30,
+      }
+    restart: unless-stopped
+  private-db:
+    image: postgres:17-alpine
+    environment:
+      {
+        POSTGRES_PASSWORD_FILE: /run/secrets/private_pg_password,
+        POSTGRES_DB: suite_privacy,
+      }
+    secrets: [private_pg_password]
+    networks: [private-db]
+    volumes: [suite-private-db:/var/lib/postgresql/data]
+    healthcheck:
+      {
+        test: ["CMD-SHELL", "pg_isready -U postgres -d suite_privacy"],
+        interval: 5s,
+        retries: 30,
+      }
+    restart: unless-stopped
+  case-migrate:
+    <<: *runtime
+    restart: "no"
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    image: whistle-suite-case:local
+    environment:
+      MIGRATION_DATABASE_URL_FILE: /run/secrets/case_migration_url
+      SUITE_DATABASE_URL_FILE: /run/secrets/case_database_url
+    secrets: [case_migration_url, case_database_url]
+    command: [node, dist/cli/provision.js]
+    networks: [case-db]
+    depends_on: { case-db: { condition: service_healthy } }
+  private-migrate:
+    <<: *runtime
+    restart: "no"
+    build: { context: ., dockerfile: apps/privacy/Dockerfile }
+    image: whistle-suite-private:local
+    environment:
+      MIGRATION_DATABASE_URL_FILE: /run/secrets/privacy_migration_url
+      PRIVACY_DATABASE_URL_FILE: /run/secrets/privacy_database_url
+    secrets: [privacy_migration_url, privacy_database_url]
+    command: [node, dist/provision.js]
+    networks: [private-db]
+    depends_on: { private-db: { condition: service_healthy } }
+  case-redis:
+    image: redis:8-alpine
+    command: [redis-server, --appendonly, "yes"]
+    networks: [case-db]
+    volumes: [suite-case-redis:/data]
+    restart: unless-stopped
+  private-redis:
+    image: redis:8-alpine
+    command: [redis-server, --appendonly, "yes"]
+    networks: [private-db]
+    volumes: [suite-private-redis:/data]
+    restart: unless-stopped
+  case-api:
+    <<: *runtime
+    image: whistle-suite-case:local
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    environment: *case-env
+    ports: ["127.0.0.1:9550:9550"]
+    secrets:
+      [
+        case_database_url,
+        case_keyring,
+        capability_private_key,
+        service_event_key,
+        abuse_key,
+        staff_smtp_pass,
+      ]
+    networks: [case-db, services, edge, delivery]
+    depends_on:
+      {
+        case-migrate: { condition: service_completed_successfully },
+        case-redis: { condition: service_started },
+      }
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            'fetch("http://127.0.0.1:9550/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))',
+          ],
+        interval: 15s,
+        retries: 10,
+      }
+  privacy-api:
+    <<: *runtime
+    image: whistle-suite-private:local
+    build: { context: ., dockerfile: apps/privacy/Dockerfile }
+    environment: *private-env
+    secrets:
+      [
+        privacy_database_url,
+        vault_keyring,
+        capability_public_key,
+        service_event_key,
+        privacy_abuse_key,
+        privacy_smtp_pass,
+        twilio_sid,
+        twilio_token,
+        minimax_api_key,
+      ]
+    volumes: [suite-vault:/data/privacy]
+    networks: [private-db, services, edge, delivery]
+    depends_on:
+      {
+        private-migrate: { condition: service_completed_successfully },
+        private-redis: { condition: service_started },
+      }
+    healthcheck:
+      {
+        test:
+          [
+            CMD,
+            node,
+            -e,
+            'fetch("http://127.0.0.1:6405/privacy/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))',
+          ],
+        interval: 15s,
+        retries: 10,
+      }
+  privacy-worker:
+    <<: *runtime
+    image: whistle-suite-private:local
+    environment: *private-env
+    secrets:
+      [
+        privacy_database_url,
+        vault_keyring,
+        capability_public_key,
+        service_event_key,
+        privacy_abuse_key,
+        privacy_smtp_pass,
+        twilio_sid,
+        twilio_token,
+        minimax_api_key,
+      ]
+    volumes: [suite-vault:/data/privacy]
+    command: [node, dist/worker.js]
+    networks: [private-db, services, conversion, delivery]
+    depends_on:
+      {
+        private-migrate: { condition: service_completed_successfully },
+        scanner: { condition: service_healthy },
+        converter: { condition: service_started },
+      }
+    mem_limit: 1g
+  scanner:
+    image: clamav/clamav:stable
+    platform: linux/amd64
+    networks: [conversion, signature-updates]
+    volumes: [suite-clamav:/var/lib/clamav]
+    restart: unless-stopped
+    mem_limit: 2g
+    healthcheck:
+      {
+        test: [CMD, clamdscan, --ping, "1"],
+        interval: 30s,
+        retries: 30,
+        start_period: 90s,
+      }
+  converter:
+    image: whistle-suite-private:local
+    user: "1000:1000"
+    entrypoint: [node, dist/converter.js]
+    networks: [conversion]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=1g,mode=1777"]
+    mem_limit: 2g
+    cpus: 1
+    pids_limit: 200
+    restart: unless-stopped
+  web:
+    <<: *runtime
+    cap_add: []
+    build:
+      {
+        context: .,
+        dockerfile: apps/web/Dockerfile,
+        args:
+          {
+            API_ORIGIN: "http://case-api:9550",
+            PRIVACY_ORIGIN: "http://privacy-api:6405",
+          },
+      }
+    image: whistle-suite-web:local
+    ports: ["127.0.0.1:9551:9551"]
+    networks: [edge]
+    depends_on:
+      {
+        case-api: { condition: service_healthy },
+        privacy-api: { condition: service_healthy },
+      }
+  caddy:
+    image: caddy:2-alpine
+    profiles: [production]
+    environment: { SUITE_DOMAIN: "${SUITE_DOMAIN:-localhost}" }
+    ports: ["80:80", "443:443"]
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", suite-caddy:/data]
+    networks: [edge]
+    depends_on: [web]
+    restart: unless-stopped
   mailpit:
     image: axllent/mailpit:v1.27
-    ports:
-      - "127.0.0.1:6403:8025"
-      - "127.0.0.1:6404:1025"
-
-  # Full stack: docker compose --profile app up --build
-  server:
-    profiles: [app]
-    build: { context: ., dockerfile: apps/server/Dockerfile }
-    env_file: .env
-    environment:
-      DATABASE_URL: postgres://whistle:whistle@postgres:5432/whistle
-      SMTP_HOST: mailpit
-      SMTP_PORT: "1025"
-    volumes:
-      - uploads:/data
-    depends_on:
-      postgres: { condition: service_healthy }
-
-  web:
-    profiles: [app]
-    build: { context: ., dockerfile: apps/web/Dockerfile, args: { API_ORIGIN: "http://server:6400" } }
-    ports:
-      - "127.0.0.1:6401:6401"
-    depends_on: [server]
-
+    profiles: [development]
+    ports: ["127.0.0.1:6403:8025"]
+    networks: [delivery]
+networks:
+  case-db: { internal: true }
+  # Dedicated bridge allows the loopback-only database host mapping.
+  case-db-access: {}
+  private-db: { internal: true }
+  services: { internal: true }
+  edge: {}
+  conversion: { internal: true }
+  delivery: {}
+  signature-updates: {}
 volumes:
-  pgdata:
-  uploads:
+  suite-case-db: {}
+  suite-private-db: {}
+  suite-case-redis: {}
+  suite-private-redis: {}
+  suite-vault: {}
+  suite-clamav: {}
+  suite-caddy: {}
+secrets:
+  case_pg_password:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/case_pg_password" }
+  private_pg_password:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/private_pg_password" }
+  case_database_url:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/case_database_url" }
+  privacy_database_url:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_database_url" }
+  case_migration_url:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/case_migration_url" }
+  privacy_migration_url:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_migration_url" }
+  case_keyring: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/case_keyring" }
+  vault_keyring:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/vault_keyring" }
+  capability_private_key:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/capability_private_key" }
+  capability_public_key:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/capability_public_key" }
+  service_event_key:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/service_event_key" }
+  abuse_key: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/abuse_key" }
+  privacy_abuse_key:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_abuse_key" }
+  staff_smtp_pass:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/staff_smtp_pass" }
+  privacy_smtp_pass:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_smtp_pass" }
+  twilio_sid: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/twilio_sid" }
+  twilio_token: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/twilio_token" }
+  minimax_api_key:
+    { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/minimax_api_key" }
