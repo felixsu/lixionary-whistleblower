@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import nodemailer from "nodemailer";
 import twilio from "twilio";
 import { sql } from "drizzle-orm";
-import { seal, unseal, safeError } from "@whistle/runtime";
+import { seal, unseal, safeError, createEmailSender } from "@whistle/runtime";
 import type { CompanySettings } from "@whistle/shared";
 import type { Db } from "./db/client.js";
 import { rows } from "./db/client.js";
@@ -29,22 +28,14 @@ export function startJobs(
 ) {
   let busy = false,
     stopped = false;
-  const mail = nodemailer.createTransport({
-    ...config.smtp,
-    auth: config.smtp.user
-      ? { user: config.smtp.user, pass: config.smtp.pass }
-      : undefined,
-    connectionTimeout: 10000,
-    socketTimeout: 20000,
-  });
+  const mail = createEmailSender(config.email);
   const sms =
     config.twilio.sid && config.twilio.token
       ? twilio(config.twilio.sid, config.twilio.token, { timeout: 20000 })
       : null;
   async function deliver(destination: string, kind: string, text: string) {
     if (kind === "email")
-      await mail.sendMail({
-        from: config.smtp.from,
+      await mail.send({
         to: destination,
         subject: "Private reporting portal",
         text,

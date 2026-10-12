@@ -11,6 +11,7 @@ import {
   unseal,
   token,
   safeError,
+  emailConfigured,
   createMinimaxClient,
   INTERVIEWER_PROMPT,
   GREETING,
@@ -173,7 +174,7 @@ export async function buildApp(deps: Dependencies) {
           (!config.twilio.sid || !config.twilio.token || !config.twilio.from)
         )
           throw new PrivacyError(503, "sms_unavailable");
-        if (v.kind === "email" && !config.smtp.host)
+        if (v.kind === "email" && !emailConfigured(config.email))
           throw new PrivacyError(503, "email_unavailable");
         const destination =
           v.kind === "email"
@@ -585,7 +586,7 @@ export async function buildApp(deps: Dependencies) {
       internal.addHook("preHandler", internalAuth);
       internal.post("/operations", async () => ({
         providers: {
-          email: !!config.smtp.host,
+          email: emailConfigured(config.email),
           phone: !!(
             config.twilio.sid &&
             config.twilio.token &&

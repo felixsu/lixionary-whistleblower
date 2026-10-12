@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
-import nodemailer from "nodemailer";
-import { mac, safeError, unseal } from "@whistle/runtime";
+import { mac, safeError, unseal, createEmailSender } from "@whistle/runtime";
 import type { Config } from "./config.js";
 import { rows, type Db } from "./db/client.js";
 import { settings, audit, enqueue } from "./service.js";
@@ -31,14 +30,7 @@ export function startJobs(
 ) {
   let stopped = false,
     running = false;
-  const mail = nodemailer.createTransport({
-    ...config.mail,
-    auth: config.mail.user
-      ? { user: config.mail.user, pass: config.mail.pass }
-      : undefined,
-    connectionTimeout: 10000,
-    socketTimeout: 20000,
-  });
+  const mail = createEmailSender(config.email);
   async function tick() {
     if (running || stopped) return;
     running = true;
@@ -87,8 +79,7 @@ export function startJobs(
                 "staff-token",
               );
               const url = `${config.webUrl}/staff/accept#token=${encodeURIComponent(raw)}`;
-              await mail.sendMail({
-                from: config.mail.from,
+              await mail.send({
                 to: String(s.email),
                 subject: "Speak Up account access",
                 text: `Open this link to set your password. Authenticator verification remains required.\n${url}`,
@@ -100,8 +91,7 @@ export function startJobs(
               sql`select distinct s.email from cases c join team_members t on t.team_id=c.team_id join staff s on s.id=t.staff_id where c.id=${j.case_id} and s.active and s.role<>'admin' and not exists(select 1 from case_members r where r.case_id=c.id and r.staff_id=s.id and r.recused) and (s.role='manager' or exists(select 1 from case_members m where m.case_id=c.id and m.staff_id=s.id and not m.recused and m.subscribed))`,
             );
             for (const p of people)
-              await mail.sendMail({
-                from: config.mail.from,
+              await mail.send({
                 to: String(p.email),
                 subject: "Reporting portal update",
                 text: `A case requires attention. Sign in to the review portal: ${config.webUrl}/staff`,

@@ -6,7 +6,7 @@ This document describes the implementation on `main`. [gaps.md](gaps.md) remains
 
 One company per deployment; public, accountless reports; English and Indonesian. Contacts are optional and hidden from all application staff. OTP confirms destination control, not legal identity. Reporter recovery uses a separately saved recovery secret, never an email or phone lookup. Staff use local passwords and mandatory authenticator MFA. System administrators manage the company but cannot read case narratives or evidence. Managers review cases in their current team; analysts need a current team membership and explicit assignment. Recusal removes access. Leadership or review-team allegations go to an independent restricted team with no overlapping memberships. A different manager must approve closure.
 
-The assistant is optional and off by default. Both company enablement and server-recorded reporter consent precede processing. Only the reviewed report is published to staff. Evidence originals remain sealed in the private service; staff receive only scanned, sanitized, reporter-approved derivatives. Retention is mandatory company configuration in production. Legal holds suspend deletion. Delivery uses SMTP and Twilio Messaging. Operations target a Docker VPS with offsite encrypted restic backups.
+The assistant is optional and off by default. Both company enablement and server-recorded reporter consent precede processing. Only the reviewed report is published to staff. Evidence originals remain sealed in the private service; staff receive only scanned, sanitized, reporter-approved derivatives. Retention is mandatory company configuration in production. Legal holds suspend deletion. Delivery supports SMTP or Zoho CPaaS HTTP email and Twilio Messaging. Operations target a Docker VPS with offsite encrypted restic backups.
 
 ## Gap coverage
 
@@ -37,7 +37,7 @@ Local verification covers real PostgreSQL migrations, API authorization/security
 
 An isolated offsite-style SFTP/restic backup and restore drill exercises both databases, sealed evidence, encryption keys, audit checkpoints, and session revocation. The destination used for this drill is a local test container; it does not establish availability or permissions of the company's real offsite destination.
 
-Production acceptance still requires the company's real SMTP/Twilio delivery, provider policy review for optional MiniMax, actual DNS/TLS/firewall/logging review, pinned release images and vulnerability scanning, encrypted host disks, offsite backup permissions and scheduling, and an observed restore drill on the target infrastructure. These are deployment checks requiring company infrastructure and credentials, not claims made by the local test suite.
+Production acceptance still requires the company's real email/Twilio delivery, provider policy review for optional MiniMax, actual DNS/TLS/firewall/logging review, pinned release images and vulnerability scanning, encrypted host disks, offsite backup permissions and scheduling, and an observed restore drill on the target infrastructure. These are deployment checks requiring company infrastructure and credentials, not claims made by the local test suite.
 
 ## Recorded local checks — 11 October 2026
 
@@ -45,7 +45,7 @@ Production acceptance still requires the company's real SMTP/Twilio delivery, pr
 | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Workspace type check, including Next route generation from an empty `.next` directory | Passed                                                                                                                                  |
 | Production server/private/web builds and Docker application startup                   | Passed                                                                                                                                  |
-| Local Docker deployment on requested ports                                            | Frontend 9551, backend 9550, case PostgreSQL 9552; loopback-only bindings; API health, authenticated DB access and browser flows passed     |
+| Local Docker deployment on requested ports                                            | Frontend 9551, backend 9550, case PostgreSQL 9552; loopback-only bindings; API health, authenticated DB access and browser flows passed |
 | PostgreSQL-backed case/security integration suite                                     | 17 passed                                                                                                                               |
 | Private-service cryptography and evidence tests                                       | 4 passed                                                                                                                                |
 | Chromium desktop and mobile Indonesian browser scenarios                              | 5 passed; duplicate mobile administrator scenario intentionally skipped                                                                 |

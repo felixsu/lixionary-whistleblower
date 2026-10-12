@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { parseKeyring } from "@whistle/runtime";
+import { parseKeyring, loadEmailConfig } from "@whistle/runtime";
 export function secret(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -31,16 +31,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       env.TRUST_PROXY === "1"
         ? (_address: string, hop: number) => hop === 0
         : false,
-    mail: {
-      host: env.STAFF_SMTP_HOST ?? "",
-      port: Number(env.STAFF_SMTP_PORT ?? 6404),
-      secure: env.STAFF_SMTP_PORT === "465",
-      user: env.STAFF_SMTP_USER ?? "",
-      pass: env.STAFF_SMTP_PASS_FILE
-        ? readFileSync(env.STAFF_SMTP_PASS_FILE, "utf8").trim()
-        : (env.STAFF_SMTP_PASS ?? ""),
-      from: env.STAFF_SMTP_FROM ?? "Speak Up <no-reply@whistle.local>",
-    },
+    email: loadEmailConfig("STAFF", env),
   };
 }
 export type Config = ReturnType<typeof loadConfig>;

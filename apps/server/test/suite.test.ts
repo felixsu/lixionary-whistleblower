@@ -959,6 +959,76 @@ describe("suite privacy and workflow boundaries", () => {
       )[0]!.verified_at,
     ).toBeNull();
   });
+  it("recognizes Zoho contact verification without SMTP and leaves SMS unavailable", async () => {
+    counts.clear();
+    const config = privacy.privacyDeps.config;
+    const previous = config.email;
+    try {
+      const report = await call("/api/reporter/reports", {
+        title: "Zoho provider configuration test",
+        summary:
+          "Synthetic report verifies email availability independently of the SMTP transport.",
+        category: "fraud",
+        privacyReviewed: true,
+        policyVersion: 1,
+      });
+      expect(report.statusCode).toBe(201);
+      const cap = report.json().capability;
+      config.email = {
+        provider: "zoho",
+        apiKey: randomBytes(16).toString("hex"),
+        from: "noreply@example.test",
+      };
+      const ops = await call("/api/admin/operations", undefined, cookies.admin);
+      expect(ops.json().privacy.providers.email).toBe(true);
+      expect(ops.json().privacy.providers.phone).toBe(false);
+      const email = await privateCall(
+        "/contacts/challenge",
+        {
+          kind: "email",
+          destination: "zoho-fixture@example.test",
+        },
+        "POST",
+        cap,
+      );
+      expect(email.statusCode).toBe(200);
+      const phone = await privateCall(
+        "/contacts/challenge",
+        {
+          kind: "phone",
+          destination: "+628123456789",
+        },
+        "POST",
+        cap,
+      );
+      expect(phone.statusCode).toBe(503);
+      expect(phone.json().error).toBe("sms_unavailable");
+      config.email = {
+        provider: "zoho",
+        apiKey: "",
+        from: "noreply@example.test",
+      };
+      expect(
+        (
+          await privateCall(
+            "/contacts/challenge",
+            {
+              kind: "email",
+              destination: "missing-fixture@example.test",
+            },
+            "POST",
+            cap,
+          )
+        ).statusCode,
+      ).toBe(503);
+      expect(
+        (await call("/api/admin/operations", undefined, cookies.admin)).json()
+          .privacy.providers.email,
+      ).toBe(false);
+    } finally {
+      config.email = previous;
+    }
+  });
   it("chains concurrent audit events and makes history immutable", async () => {
     await Promise.all(
       Array.from({ length: 10 }, (_, i) =>

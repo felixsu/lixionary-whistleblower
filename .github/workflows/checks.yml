@@ -10,6 +10,20 @@ concurrency:
   group: suite-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  deployment-script-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install cryptography==50.0.0
+      - run: bash -n scripts/deploy-vps-remote.sh scripts/backup-suite.sh
+      - run: node --test scripts/test/*.test.mjs
   checks:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

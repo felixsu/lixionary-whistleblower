@@ -11,6 +11,9 @@ checkpoint_dir="${SUITE_CHECKPOINT_DIR:-$config_dir/checkpoints}"
 mkdir -p "$checkpoint_dir"
 staging="$(mktemp -d)"
 compose=(docker compose --env-file "$env_file")
+if [[ -f "$config_dir/active-release.json" ]]; then
+  compose=(docker compose -f docker-compose.yml -f deploy/compose.vps.yml -f "$config_dir/active-release.json" --env-file "$env_file")
+fi
 restart_services(){ "${compose[@]}" start case-api privacy-api privacy-worker web >/dev/null; }
 trap 'restart_services; find "$staging" -type f -delete; rmdir "$staging" 2>/dev/null || true' EXIT
 "${compose[@]}" stop web case-api privacy-api privacy-worker >/dev/null

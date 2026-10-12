@@ -64,6 +64,7 @@ try {
 for (const name of [
   "staff_smtp_pass",
   "privacy_smtp_pass",
+  "zoho_api_key",
   "twilio_sid",
   "twilio_token",
   "minimax_api_key",
@@ -75,7 +76,7 @@ const domain = process.env.SUITE_DOMAIN ?? "localhost";
 const production = process.argv.includes("--production");
 if (production && domain === "localhost")
   throw new Error("Set SUITE_DOMAIN to the production hostname");
-const env = `SUITE_CONFIG_DIR=${dir}\nSUITE_DOMAIN=${domain}\nPUBLIC_WEB_URL=${production ? "https://" + domain : "http://localhost:9551"}\nSUITE_NODE_ENV=${production ? "production" : "development"}\nSTAFF_SMTP_HOST=${production ? (process.env.STAFF_SMTP_HOST ?? "") : "mailpit"}\nSTAFF_SMTP_PORT=${production ? (process.env.STAFF_SMTP_PORT ?? "587") : "1025"}\nSTAFF_SMTP_FROM=Speak Up <no-reply@whistle.local>\nPRIVACY_SMTP_HOST=${production ? (process.env.PRIVACY_SMTP_HOST ?? "") : "mailpit"}\nPRIVACY_SMTP_PORT=${production ? (process.env.PRIVACY_SMTP_PORT ?? "587") : "1025"}\nPRIVACY_SMTP_FROM=Speak Up <no-reply@whistle.local>\nTWILIO_FROM=\nRESTIC_REPOSITORY=\nBACKUP_RETENTION_DAYS=\n`;
+const env = `SUITE_CONFIG_DIR=${dir}\nSUITE_DOMAIN=${domain}\nPUBLIC_WEB_URL=${production ? "https://" + domain : "http://localhost:9551"}\nSUITE_NODE_ENV=${production ? "production" : "development"}\nSTAFF_SMTP_HOST=${production ? (process.env.STAFF_SMTP_HOST ?? "") : "mailpit"}\nSTAFF_SMTP_PORT=${production ? (process.env.STAFF_SMTP_PORT ?? "587") : "1025"}\nSTAFF_SMTP_FROM=Speak Up <no-reply@whistle.local>\nPRIVACY_SMTP_HOST=${production ? (process.env.PRIVACY_SMTP_HOST ?? "") : "mailpit"}\nPRIVACY_SMTP_PORT=${production ? (process.env.PRIVACY_SMTP_PORT ?? "587") : "1025"}\nPRIVACY_SMTP_FROM=Speak Up <no-reply@whistle.local>\nSTAFF_EMAIL_PROVIDER=smtp\nSTAFF_EMAIL_FROM=\nPRIVACY_EMAIL_PROVIDER=smtp\nPRIVACY_EMAIL_FROM=\nTWILIO_FROM=\nRESTIC_REPOSITORY=\nBACKUP_RETENTION_DAYS=\n`;
 await writeFile(resolve(dir, "suite.env"), env, {
   mode: 0o600,
   flag: "wx",

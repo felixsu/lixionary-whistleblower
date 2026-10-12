@@ -21,7 +21,10 @@
     "suite:dev": "docker compose --env-file .suite-dev/suite.env --profile development up --build -d",
     "test:integration": "pnpm --filter @whistle/server test",
     "test:browser": "pnpm --filter @whistle/web exec playwright test",
-    "dev:privacy": "pnpm --filter @whistle/privacy dev"
+    "dev:privacy": "pnpm --filter @whistle/privacy dev",
+    "deploy:vps": "node scripts/deploy-vps.mjs",
+    "email:configure:vps": "node scripts/configure-zoho-vps.mjs",
+    "test:deploy": "node --test scripts/test/*.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",

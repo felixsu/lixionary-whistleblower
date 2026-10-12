@@ -14,7 +14,7 @@ The backend listens on 9550 and the frontend on 9551. Compose publishes these po
      node scripts/setup-suite.mjs --production
    ```
 
-3. Edit `.suite-config/suite.env` for the hostname, HTTPS URL, staff/private SMTP host, port, user and sender, and Twilio sender. Write SMTP passwords, Twilio SID/token and optional MiniMax key into their generated secret files. Keep files mode 600, directories mode 700, and the host key store access restricted. Setup preserves existing files. Do not place secrets in command-line arguments, shell history, Git or support logs. Mailpit is for development only; production needs a real SMTP transport.
+3. Edit `.suite-config/suite.env` for the hostname, HTTPS URL, staff/private SMTP host, port, user and sender, and Twilio sender. Write SMTP passwords, Twilio SID/token and optional MiniMax key into their generated secret files. Keep files mode 600, directories mode 700, and the host key store access restricted. Setup preserves existing files. Do not place secrets in command-line arguments, shell history, Git or support logs. Mailpit is for development only; production needs a configured email transport; see the Zoho section for HTTP delivery.
 4. Review company/provider processing and retention terms before enabling SMS or AI. Keep AI disabled until approved. The assistant requires both a configured key and the company setting. Changing environment values needs a container recreation.
 5. Build and launch:
 
@@ -77,6 +77,80 @@ Fresh production databases contain no test accounts or company setup. Bootstrap 
 Keep `deploy/compose.vps.yml` included for this host. It assigns eight `/28` networks within `10.245.95.0/24`, avoiding the exhausted default Docker address pool without modifying other projects. Recheck host routes and Docker subnets before reusing the override elsewhere. Do not prune unrelated networks to make space.
 
 nginx proxy directives follow the [official proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html); certificate issuance and renewal use [Certbot's webroot workflow](https://eff-certbot.readthedocs.io/en/stable/using.html#webroot).
+
+## Deploying from the development machine
+
+Use `pnpm deploy:vps --check` for a preflight that does not update the checkout, copy images or restart services. To release a clean, committed `main`, run `pnpm deploy:vps --push`; omit `--push` when `origin/main` already matches. The deployment refuses uncommitted changes, remote checkout changes, diverging history and revisions that differ from `origin/main`.
+
+The development machine needs Node 24+, pnpm, Python 3 with `cryptography` for snapshot tests, Docker with Buildx and Linux AMD64 emulation, Git, SSH/SCP, gzip and tar. Start the isolated integration-test database described in the README before deploying. SSH uses the existing key, strict known-host verification and batch authentication. VPS prerequisites are the completed initial installation above, sudo access for the nginx site/reload, Python `cryptography`, Docker Compose, `flock`, curl and at least 8 GiB free disk. The VPS does not need Node, pnpm or a registry login.
+
+The script validates types, tests, snapshot authentication, production builds and dependencies locally. It builds three AMD64 images sequentially from `git archive` of the exact revision, so ignored local files cannot enter the build context. Images are transferred over SSH, checked for their architecture/revision labels and pinned by image ID. Production configuration/keyrings are not regenerated or copied from development.
+
+A VPS lock covers snapshotting, migration and activation. The script stops application writers briefly, snapshots both PostgreSQL databases, the sealed vault, production keys/configuration, the prior image IDs and the current audit checkpoint, then encrypts the tar stream with AES-256-GCM. It copies the encrypted archive and separate key into `.suite-dev/deployments/<release-id>/` and verifies the authentication tag locally before acknowledging that migrations may proceed. Raw snapshot staging files are removed on the VPS. The same protected encrypted backup remains in `.suite-config/releases/<release-id>/`, alongside deployment logs and the image manifest. Protect both machines and keep the archive and key together. This release safety copy does not replace scheduled offsite restic backups, legal-hold retention or restore drills.
+
+The portal is unavailable while the snapshot is created/copied and migrations run; allow a maintenance window based on data size and connection speed. Snapshots are limited to 60 GiB of plaintext per release. Allow disk space for the uploaded images, plaintext staging and encrypted snapshot in addition to the 8 GiB preflight minimum.
+
+Only application/migration images are updated by this script. Existing database, Redis, scanner, networks and volumes remain running; infrastructure upgrades use a separately reviewed procedure. Native nginx receives the checked-in site and renewal hook, then reloads after configuration validation. Existing certificates are reused. The script checks the running image IDs, audit chain, public HTTPS and both APIs. If migrations might have started, failure leaves recovery to the operator rather than restarting older binaries against a changed schema.
+
+After a successful scripted release, include its active image override for manual operations:
+
+```sh
+docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
+  -f .suite-config/active-release.json --env-file .suite-config/suite.env ps
+```
+
+For recovery, decrypt into a new protected path; the helper publishes a tar only after authenticating it:
+
+```sh
+umask 077
+python3 scripts/deployment-backup.py decrypt \
+  .suite-dev/deployments/<release-id>/snapshot.wbenc \
+  .suite-dev/deployments/<release-id>/recovery.key /protected/recovery.tar
+```
+
+Use the tar's dumps, sealed vault, configuration and prior revision to restore into a new isolated project following the restore section. Apply the newest verified deletion/hold manifest and revoke old sessions before public access. Do not replace a live database or automatically rewind migrations. Plaintext recovery tars contain private keys/configuration and must be removed securely after recovery. Release snapshots require the same retention and legal-hold review as other backups; the script does not delete snapshots automatically.
+
+## Zoho transactional email
+
+Both services support `smtp` (the backward-compatible default) and `zoho`. Set `STAFF_EMAIL_PROVIDER=zoho`, `PRIVACY_EMAIL_PROVIDER=zoho`, `STAFF_EMAIL_FROM=noreply@lixionary.com` and `PRIVACY_EMAIL_FROM=noreply@lixionary.com` for this VPS. SMTP settings remain available for other installations and local Mailpit development. Zoho sends existing plain-text email content through `https://cpaas.zoho.com/v1.1/email`; the request format and acceptance code follow [Zoho's email API](https://www.zoho.com/cpaas/help/api/email-sending.html). Open/click tracking is explicitly disabled. The selected provider must be configured before contact challenges are accepted; Operations availability indicates configuration, not inbox delivery.
+
+Verify the sending domain and account approval in Zoho. Install the raw key directly in a VPS terminal, without pasting it into chat, Git or command-line arguments:
+
+```bash
+ssh lixsu@lixionary.com
+umask 077
+read -r -s -p 'Zoho API key: ' zoho_key
+printf '%s' "$zoho_key" > /app/lixionary-whistleblower/.suite-config/secrets/zoho_api_key
+unset zoho_key
+chmod 600 /app/lixionary-whistleblower/.suite-config/secrets/zoho_api_key
+```
+
+The file must be owned by `lixsu`. Setup creates an empty placeholder for new installations and preserves existing values. Compose mounts this read-only secret only into the case API, private API and private worker; the converter, web, databases and migrate services do not receive it. Reporter addresses remain in the private service. Staff/admin interfaces expose no key or reporter address.
+
+From the development machine:
+
+```sh
+pnpm email:configure:vps --check
+pnpm email:configure:vps
+pnpm deploy:vps --push
+```
+
+The configuration command verifies the protected key and production URL, saves an owner-only copy of the previous environment if changes are needed, and atomically updates only the four provider/sender settings. It does not restart containers. Commit the integration and deployment tooling on `main` before deploying. Provider failures leave existing jobs eligible for retry; expired OTPs are discarded. SMS remains unavailable until Twilio SID, token and sender are supplied.
+
+After deployment, send synthetic checks from both production services in a VPS terminal:
+
+```sh
+cd /app/lixionary-whistleblower
+export SUITE_CONFIG_DIR="$PWD/.suite-config"
+docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
+  -f .suite-config/active-release.json --env-file .suite-config/suite.env \
+  run -T --rm --no-deps case-api node dist/cli/email-test.js felix.soewito@lixionary.com
+docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
+  -f .suite-config/active-release.json --env-file .suite-config/suite.env \
+  run -T --rm --no-deps privacy-worker node dist/cli/email-test.js felix.soewito@lixionary.com
+```
+
+The CLI sends no actual OTP, account token or report data, and only reports provider acceptance or a generic failure. Confirm receipt in the test inbox separately. These checks do not establish that every staff/reporter workflow has been exercised on production. Do not test using real reporter destinations or resend historical notifications.
 
 ## Access and secrets
 

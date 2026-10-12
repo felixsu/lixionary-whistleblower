@@ -29,6 +29,8 @@ Enter a password of at least 15 characters through stdin. Log in at `/staff/logi
 
 Development SMTP goes to Mailpit. SMS requires Twilio credentials. AI requires a MiniMax key **and** the company AI setting; it is off by default. Generated secrets are file based, ignored by Git, and never printed by setup.
 
+Production email supports Zoho CPaaS HTTP delivery for both staff and reporters. Install the API key directly on the VPS in `.suite-config/secrets/zoho_api_key` (owner `lixsu`, mode 600), then run `pnpm email:configure:vps --check` and `pnpm email:configure:vps` here before deployment. These commands never copy or print the key. See the [Zoho setup and email checks](docs/runbook.md#zoho-transactional-email) for details. Local development continues to use Mailpit; phone verification remains unavailable until Twilio is configured.
+
 ## Workspace
 
 | Path               | Responsibility                                                                         |
@@ -64,5 +66,14 @@ node scripts/evidence-smoke.mjs
 ```
 
 The browser seed refuses non-test staff accounts and production configuration. These scripts create synthetic reports and Mailpit messages. Do not run them against real company data.
+
+## Deploy from this machine
+
+```sh
+pnpm deploy:vps --check   # Inspect the existing VPS without restarting services
+pnpm deploy:vps --push    # Validate committed main, push it, build and deploy
+```
+
+Commit the intended changes on `main` first. If already pushed, use `pnpm deploy:vps`. The script builds `linux/amd64` images locally, transfers them over SSH to `lixsu@lixionary.com:/app/lixionary-whistleblower`, copies and authenticates an encrypted pre-deployment snapshot here, then migrates and starts the exact image IDs. Existing secrets, port configuration and TLS certificates are preserved. Protected backup files live in `.suite-dev/deployments/` and must be kept together for recovery. See the runbook for prerequisites and failure recovery.
 
 See [implementation and validation](docs/implementation.md), [deployment and operations](docs/runbook.md), and the [historical MVP gap assessment](docs/gaps.md).

@@ -25,6 +25,9 @@ x-case-env: &case-env
   STAFF_SMTP_USER: ${STAFF_SMTP_USER:-}
   STAFF_SMTP_PASS_FILE: /run/secrets/staff_smtp_pass
   STAFF_SMTP_FROM: ${STAFF_SMTP_FROM:-Speak Up <no-reply@whistle.local>}
+  STAFF_EMAIL_PROVIDER: ${STAFF_EMAIL_PROVIDER:-smtp}
+  STAFF_EMAIL_FROM: ${STAFF_EMAIL_FROM:-}
+  ZOHO_API_KEY_FILE: /run/secrets/zoho_api_key
 x-private-env: &private-env
   NODE_ENV: ${SUITE_NODE_ENV:-production}
   PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost}
@@ -44,6 +47,9 @@ x-private-env: &private-env
   PRIVACY_SMTP_USER: ${PRIVACY_SMTP_USER:-}
   PRIVACY_SMTP_PASS_FILE: /run/secrets/privacy_smtp_pass
   PRIVACY_SMTP_FROM: ${PRIVACY_SMTP_FROM:-Speak Up <no-reply@whistle.local>}
+  PRIVACY_EMAIL_PROVIDER: ${PRIVACY_EMAIL_PROVIDER:-smtp}
+  PRIVACY_EMAIL_FROM: ${PRIVACY_EMAIL_FROM:-}
+  ZOHO_API_KEY_FILE: /run/secrets/zoho_api_key
   TWILIO_ACCOUNT_SID_FILE: /run/secrets/twilio_sid
   TWILIO_AUTH_TOKEN_FILE: /run/secrets/twilio_token
   TWILIO_FROM: ${TWILIO_FROM:-}
@@ -134,6 +140,7 @@ services:
         service_event_key,
         abuse_key,
         staff_smtp_pass,
+        zoho_api_key,
       ]
     networks: [case-db, services, edge, delivery]
     depends_on:
@@ -166,6 +173,7 @@ services:
         service_event_key,
         privacy_abuse_key,
         privacy_smtp_pass,
+        zoho_api_key,
         twilio_sid,
         twilio_token,
         minimax_api_key,
@@ -201,6 +209,7 @@ services:
         service_event_key,
         privacy_abuse_key,
         privacy_smtp_pass,
+        zoho_api_key,
         twilio_sid,
         twilio_token,
         minimax_api_key,
@@ -324,6 +333,7 @@ secrets:
     { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/staff_smtp_pass" }
   privacy_smtp_pass:
     { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_smtp_pass" }
+  zoho_api_key: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/zoho_api_key" }
   twilio_sid: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/twilio_sid" }
   twilio_token: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/twilio_token" }
   minimax_api_key:
