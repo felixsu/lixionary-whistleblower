@@ -543,6 +543,12 @@ textarea {
 .suite .auth-card h1 {
   font-size: 32px;
 }
+.suite .mfa-qr {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 20px auto;
+}
 .suite .auth-card form > button[type="submit"],
 .suite .auth-card form > button:not([type]) {
   width: 100%;

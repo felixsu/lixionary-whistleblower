@@ -25,7 +25,7 @@ docker compose --env-file .suite-dev/suite.env run --rm --no-deps case-migrate \
   node dist/cli/bootstrap.js you@example.com
 ```
 
-Enter a password of at least 15 characters through stdin. Log in at `/staff/login`, enroll an authenticator, and save the single-use recovery codes. Invite two managers for the standard team and two different managers for the independent team, create those teams, and configure the company policy, categories, deadlines, and all six retention periods. Production submissions are unavailable until this setup is complete.
+Enter a password of at least 15 characters through stdin. Log in at `/staff/login` and scan the enrollment QR code with your authenticator app, or use the manual setup key or app link. Enter the app's six-digit code to complete enrollment and save the single-use recovery codes. Invite two managers for the standard team and two different managers for the independent team, create those teams, and configure the company policy, categories, deadlines, and all six retention periods. Production submissions are unavailable until this setup is complete.
 
 Development SMTP goes to Mailpit. SMS requires Twilio credentials. AI requires a MiniMax key **and** the company AI setting; it is off by default. Generated secrets are file based, ignored by Git, and never printed by setup.
 
@@ -45,11 +45,11 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 
 ## Versioning
 
-The root `package.json` is the release-version source of truth. All workspace packages share version `0.2.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.2.1`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
 
 ```sh
 pnpm version:check          # Validate every workspace package
-pnpm version:bump patch     # 0.2.0 → 0.2.1
+pnpm version:bump patch     # 0.2.1 → 0.2.2
 pnpm version:bump minor     # Advance the minor version and reset patch
 pnpm version:bump major     # Advance the major version and reset minor/patch
 pnpm version:bump 1.2.3     # Set an explicit, newer release version

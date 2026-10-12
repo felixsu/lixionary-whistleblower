@@ -18,6 +18,13 @@ test("staff MFA and assigned review workflow preserve contact privacy", async ({
     .getByRole("button", { name: id ? "Masuk" : "Sign in", exact: true })
     .click();
   await expect(page.locator("p.secret")).toBeVisible();
+  await expect(
+    page.getByRole("img", {
+      name: id
+        ? "Kode QR penyiapan autentikator"
+        : "Authenticator setup QR code",
+    }),
+  ).toBeVisible();
   const secret = await page.locator("p.secret").textContent();
   await page
     .getByLabel(
@@ -91,6 +98,9 @@ test("administration manages configuration without viewing case or reporter iden
     .getByLabel("Password", { exact: true })
     .fill("UI test-only long password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByRole("img", { name: "Authenticator setup QR code" }),
+  ).toBeVisible();
   const secret = await page.locator("p.secret").textContent();
   await page
     .getByLabel("Authenticator or recovery code")

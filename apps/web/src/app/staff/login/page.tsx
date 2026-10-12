@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { api } from "@/lib/api";
 import {
   Shell,
@@ -111,6 +112,19 @@ export default function Login() {
             {enroll && (
               <>
                 <p>{t("enroll")}</p>
+                <QRCodeSVG
+                  className="mfa-qr"
+                  value={enroll.uri}
+                  size={256}
+                  marginSize={4}
+                  level="M"
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  role="img"
+                  aria-label={t("mfaQr")}
+                  title={t("mfaQr")}
+                />
+                <p>{t("setupKey")}</p>
                 <p className="secret">{enroll.secret}</p>
                 <a href={enroll.uri}>
                   {lang === "id"

@@ -114,9 +114,11 @@ export const strings = {
     "Kode autentikator atau pemulihan",
   ],
   enroll: [
-    "Add this secret to your authenticator app, then enter its six-digit code.",
-    "Tambahkan rahasia ini ke aplikasi autentikator lalu masukkan kode enam digitnya.",
+    "Scan this QR code with your authenticator app, then enter its six-digit code. You can also enter the setup key manually or open the app on this device.",
+    "Pindai kode QR ini dengan aplikasi autentikator, lalu masukkan kode enam digitnya. Anda juga dapat memasukkan kunci penyiapan secara manual atau membuka aplikasi di perangkat ini.",
   ],
+  mfaQr: ["Authenticator setup QR code", "Kode QR penyiapan autentikator"],
+  setupKey: ["Manual setup key", "Kunci penyiapan manual"],
   recover: ["Recover with saved secret", "Pulihkan dengan rahasia tersimpan"],
   newPassword: [
     "New password (at least 15 characters)",
