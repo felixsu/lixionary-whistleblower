@@ -6,6 +6,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  APP_REVISION: ${{ github.sha }}
 concurrency:
   group: suite-${{ github.ref }}
   cancel-in-progress: true
@@ -33,6 +35,7 @@ jobs:
         with:
           node-version: 24
       - run: corepack enable
+      - run: node scripts/version.mjs check
       - run: pnpm install --frozen-lockfile
       - run: node scripts/test-db.mjs
       - run: docker run -d --name whistle-suite-test-db --env-file .suite-dev/postgres.env -p 127.0.0.1:6412:5432 postgres:17-alpine

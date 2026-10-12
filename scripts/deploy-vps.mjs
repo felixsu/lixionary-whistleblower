@@ -151,6 +151,7 @@ async function buildRelease(revision, id) {
       "--load",
       "--label",
       `org.opencontainers.image.revision=${revision}`,
+      ...(kind === "web" ? ["--build-arg", `APP_REVISION=${revision}`] : []),
       "--tag",
       tag,
       "--file",

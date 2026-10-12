@@ -43,6 +43,23 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 | `deploy`           | Container entrypoint, proxy policy, scanner configuration                              |
 | `scripts`          | Secret setup, synthetic tests, key rotation, offsite backup and isolated restore       |
 
+## Versioning
+
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.2.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+
+```sh
+pnpm version:check          # Validate every workspace package
+pnpm version:bump patch     # 0.2.0 → 0.2.1
+pnpm version:bump minor     # Advance the minor version and reset patch
+pnpm version:bump major     # Advance the major version and reset minor/patch
+pnpm version:bump 1.2.3     # Set an explicit, newer release version
+pnpm version:sync           # Repair package drift using the root version
+```
+
+Use patch versions for fixes and minor versions for features; while the project is below 1.0, advance the minor version for breaking changes. Bump the version with the intended changes, validate, then commit all updated manifests together. The commands do not create commits or Git tags. Workspace builds, type checks and CI validate version alignment.
+
+Local builds display the version with a `Local build` tooltip. To identify a particular committed build, set `APP_REVISION` to its full 40-character Git SHA when running `pnpm build` or `pnpm suite:dev`; direct Docker builds accept `--build-arg APP_REVISION=<full-sha>`. CI supplies its revision automatically, and the VPS deployment script embeds the exact archived revision.
+
 ## Verify
 
 ```sh

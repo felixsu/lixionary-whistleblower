@@ -262,6 +262,7 @@ services:
           {
             API_ORIGIN: "http://case-api:9550",
             PRIVACY_ORIGIN: "http://privacy-api:6405",
+            APP_REVISION: "${APP_REVISION:-local}",
           },
       }
     image: whistle-suite-web:local

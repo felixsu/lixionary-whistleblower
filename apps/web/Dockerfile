@@ -9,6 +9,8 @@ RUN pnpm install --frozen-lockfile --filter @whistle/web... \
 # API_ORIGIN is read when next.config builds the rewrites.
 ARG API_ORIGIN=http://case-api:9550
 ARG PRIVACY_ORIGIN=http://privacy-api:6405
+ARG APP_REVISION=local
+ENV APP_REVISION=$APP_REVISION
 ENV PRIVACY_ORIGIN=$PRIVACY_ORIGIN
 ENV API_ORIGIN=$API_ORIGIN
 RUN pnpm --filter @whistle/web build

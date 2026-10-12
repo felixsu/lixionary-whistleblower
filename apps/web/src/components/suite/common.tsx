@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
+import { BuildSignature } from "@/components/build-signature";
 import { api, ApiError } from "@/lib/api";
 export const strings = {
   skip: ["Skip to content", "Langsung ke konten"],
@@ -304,7 +305,9 @@ export function Shell({
           <ShieldCheck size={16} aria-hidden="true" />
           {t("confidential")}
         </span>
-        <span>Speak Up · Lixionary</span>
+        <span>
+          Speak Up · Lixionary · <BuildSignature />
+        </span>
       </footer>
     </div>
   );
