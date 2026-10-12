@@ -116,6 +116,12 @@ async function archiveImages(tags, output) {
   }
 }
 
+export async function extractSourceArchive(archive, source) {
+  // Git's tracked modes must survive the protected umask. The outer directory
+  // remains owner-only; image application files must be readable by UID 1000.
+  await run("tar", ["-xpf", archive, "-C", source]);
+}
+
 async function buildRelease(revision, id) {
   const folder = resolve(root, ".suite-dev/deployments", id);
   const source = resolve(folder, "source");
@@ -127,7 +133,7 @@ async function buildRelease(revision, id) {
     `--output=${sourceTar}`,
     revision,
   ]);
-  await run("tar", ["-xf", sourceTar, "-C", source]);
+  await extractSourceArchive(sourceTar, source);
   const images = {},
     tags = [];
   for (const [kind, app] of [
@@ -154,6 +160,33 @@ async function buildRelease(revision, id) {
     const image = JSON.parse(capture("docker", ["image", "inspect", tag]))[0];
     if (image.Architecture !== "amd64" || image.Os !== "linux")
       throw new Error("Build produced an unexpected platform");
+    console.log(`Checking ${kind} runtime code as UID 1000...`);
+    await run("docker", [
+      "run",
+      "--rm",
+      "--platform",
+      "linux/amd64",
+      "--network",
+      "none",
+      "--read-only",
+      "--tmpfs",
+      "/tmp:size=64m",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges:true",
+      "--user",
+      "1000:1000",
+      "--workdir",
+      kind === "web" ? "/app/apps/web" : "/app",
+      "--entrypoint",
+      "node",
+      tag,
+      "-e",
+      kind === "web"
+        ? 'const req=require("module").createRequire(require.resolve("next/package.json"));req("sharp");console.log("Frontend runtime dependencies readable");'
+        : 'import("./dist/jobs.js").then(()=>console.log("Application runtime dependencies readable")).catch(()=>process.exit(1));',
+    ]);
     images[kind] = image.Id;
     tags.push(tag);
   }

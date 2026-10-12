@@ -1,11 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile, rm, chmod } from "node:fs/promises";
+import {
+  mkdtemp,
+  writeFile,
+  readFile,
+  rm,
+  chmod,
+  mkdir,
+  stat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, createCipheriv } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { verifyBackup } from "../deploy-vps.mjs";
+import { verifyBackup, extractSourceArchive } from "../deploy-vps.mjs";
 
 const cli = new URL("../deploy-vps.mjs", import.meta.url);
 const helper = new URL("../deployment-backup.py", import.meta.url);
@@ -18,6 +26,33 @@ async function fixture(fn) {
     await rm(folder, { recursive: true, force: true });
   }
 }
+
+test("Git source modes survive the private umask without opening the release directory", async () => {
+  await fixture(async (folder) => {
+    const tracked = join(folder, "tracked"),
+      source = join(folder, "source"),
+      archive = join(folder, "source.tar");
+    await mkdir(tracked, { mode: 0o755 });
+    await mkdir(source, { mode: 0o700 });
+    await writeFile(join(tracked, "package.json"), "{}", { mode: 0o644 });
+    await chmod(join(tracked, "package.json"), 0o644);
+    assert.equal(
+      spawnSync("tar", ["-cf", archive, "-C", tracked, "package.json"]).status,
+      0,
+    );
+    const previous = process.umask(0o077);
+    try {
+      await extractSourceArchive(archive, source);
+    } finally {
+      process.umask(previous);
+    }
+    assert.equal(
+      (await stat(join(source, "package.json"))).mode & 0o777,
+      0o644,
+    );
+    assert.equal((await stat(source)).mode & 0o777, 0o700);
+  });
+});
 
 test("backup authentication rejects tampering, wrong keys and truncation", async () => {
   await fixture(async (folder) => {
