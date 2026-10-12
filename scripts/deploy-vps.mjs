@@ -140,8 +140,6 @@ async function buildRelease(revision, id) {
     await run("docker", [
       "buildx",
       "build",
-      "--builder",
-      "default",
       "--platform",
       "linux/amd64",
       "--load",
