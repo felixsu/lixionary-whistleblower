@@ -1,6 +1,30 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import { Providers } from "@/components/providers";
 import "./globals.css";
+
+const inter = localFont({
+  src: [
+    { path: "./fonts/inter-latin-400-normal.woff2", weight: "400" },
+    { path: "./fonts/inter-latin-500-normal.woff2", weight: "500" },
+    { path: "./fonts/inter-latin-600-normal.woff2", weight: "600" },
+  ],
+  variable: "--font-inter",
+  display: "swap",
+});
+const cormorant = localFont({
+  src: "./fonts/cormorant-garamond-latin-400-normal.woff2",
+  weight: "400",
+  variable: "--font-cormorant",
+  display: "swap",
+});
+const jetbrains = localFont({
+  src: "./fonts/jetbrains-mono-latin-400-normal.woff2",
+  weight: "400",
+  variable: "--font-jetbrains",
+  display: "swap",
+  preload: false,
+});
 
 export const metadata: Metadata = {
   title: {
@@ -18,7 +42,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html
+      lang="en"
+      className={`${inter.variable} ${cormorant.variable} ${jetbrains.variable}`}
+    >
       <body className="min-h-dvh">
         <Providers>{children}</Providers>
       </body>

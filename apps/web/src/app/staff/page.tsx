@@ -4,6 +4,7 @@ import { api, ApiError } from "@/lib/api";
 import { states, type StaffIdentity } from "@whistle/shared";
 import {
   Shell,
+  StatusBadge,
   useLanguage,
   useAction,
   Select,
@@ -75,7 +76,7 @@ export default function Staff() {
         <>
           <section>
             <h1>{user.name}</h1>
-            <span className="badge">{t(user.role)}</span>
+            <StatusBadge state={user.role}>{t(user.role)}</StatusBadge>
             <button
               onClick={() =>
                 void a.run(async () => {
@@ -156,27 +157,41 @@ export default function Staff() {
                 ))}
               </Select>
               {cases.map((c) => (
-                <article key={c.id}>
+                <article className="case-row" key={c.id}>
                   <button onClick={() => setSelected(c.id)}>
                     {c.case_code}
                   </button>
-                  <span>
-                    {t(c.state)} · {c.category}
+                  <span className="case-meta">
+                    <StatusBadge state={c.state}>{t(c.state)}</StatusBadge>{" "}
+                    {c.category}
                   </span>
-                  {c.overdue && <span className="badge">{t("overdue")}</span>}
-                  {c.unread && <span className="badge">{t("unread")}</span>}
+                  {c.overdue && (
+                    <StatusBadge state="overdue">{t("overdue")}</StatusBadge>
+                  )}
+                  {c.unread && (
+                    <StatusBadge state="unread">{t("unread")}</StatusBadge>
+                  )}
                 </article>
               ))}
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                ←
-              </button>{" "}
-              {page}{" "}
-              <button
-                disabled={cases.length < 50}
-                onClick={() => setPage(page + 1)}
-              >
-                →
-              </button>
+              <nav className="pagination" aria-label={t("page")}>
+                <button
+                  className="secondary"
+                  aria-label={t("previousPage")}
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  ←
+                </button>{" "}
+                {page}{" "}
+                <button
+                  className="secondary"
+                  aria-label={t("nextPage")}
+                  disabled={cases.length < 50}
+                  onClick={() => setPage(page + 1)}
+                >
+                  →
+                </button>
+              </nav>
             </section>
           )}
           <Analytics lang={lang} t={t} />

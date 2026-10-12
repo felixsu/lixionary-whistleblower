@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import {
   Shell,
+  StatusBadge,
   useLanguage,
   useAction,
   Field,
@@ -85,8 +86,9 @@ export default function Portal() {
           }}
         />
       ) : login ? (
-        <section>
+        <section className="auth-card">
           <h1>{t("portal")}</h1>
+          <p className="muted">{t("caseIntro")}</p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -139,8 +141,10 @@ export default function Portal() {
         <>
           <section>
             <h1>{report.caseCode}</h1>
-            <span className="badge">{t(report.state)}</span>
-            <span className="badge">{t(report.verification.state)}</span>
+            <StatusBadge state={report.state}>{t(report.state)}</StatusBadge>
+            <StatusBadge state={report.verification.state}>
+              {t(report.verification.state)}
+            </StatusBadge>
             <h2>{report.content.title}</h2>
             <p>{report.content.summary}</p>
             {Object.entries(report.content.details ?? {})

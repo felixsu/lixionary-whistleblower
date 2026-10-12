@@ -1,8 +1,29 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 export const strings = {
+  skip: ["Skip to content", "Langsung ke konten"],
+  navigation: ["Main navigation", "Navigasi utama"],
+  confidential: ["Confidential reporting", "Pelaporan rahasia"],
+  noAccount: ["No account needed", "Tidak perlu akun"],
+  reportIntro: [
+    "Share a concern at your own pace. Review your report and evidence before sharing them with the review team.",
+    "Sampaikan kekhawatiran Anda sesuai kenyamanan Anda. Tinjau laporan dan bukti sebelum membagikannya kepada tim peninjau.",
+  ],
+  caseIntro: [
+    "Use your saved case code and access secret to follow progress and speak privately with your review team.",
+    "Gunakan kode laporan dan rahasia akses yang tersimpan untuk mengikuti perkembangan dan berbicara secara pribadi dengan tim peninjau.",
+  ],
+  staffAccess: ["Staff access", "Akses staf"],
+  staffIntro: [
+    "Sign in with your staff account. An authenticator or recovery code is required to continue.",
+    "Masuk dengan akun staf Anda. Kode autentikator atau pemulihan diperlukan untuk melanjutkan.",
+  ],
+  previousPage: ["Previous page", "Halaman sebelumnya"],
+  nextPage: ["Next page", "Halaman berikutnya"],
   what: ["More detail about what happened", "Detail tentang kejadian"],
   high: ["High", "Tinggi"],
   critical: ["Critical", "Kritis"],
@@ -229,14 +250,38 @@ export function Shell({
   language: ReturnType<typeof useLanguage>;
 }) {
   const { lang, setLang, t } = language;
+  const pathname = usePathname();
+  const links = [
+    { href: "/report", key: "report" },
+    { href: "/case", key: "portal" },
+    { href: "/staff", key: "staff" },
+  ];
   return (
-    <main className="suite">
-      <header>
-        <Link href="/">Speak Up</Link>
-        <nav>
-          <Link href="/report">{t("report")}</Link>
-          <Link href="/case">{t("portal")}</Link>
-          <Link href="/staff">{t("staff")}</Link>
+    <div className={`suite${pathname === "/staff" ? " suite-workspace" : ""}`}>
+      <a className="skip-link" href="#main-content">
+        {t("skip")}
+      </a>
+      <header className="suite-header">
+        <div className="brand-lockup">
+          <Link className="wordmark" href="/">
+            Speak Up
+          </Link>
+          <span className="brand-caption">Lixionary</span>
+        </div>
+        <nav aria-label={t("navigation")}>
+          {links.map(({ href, key }) => (
+            <Link
+              key={href}
+              href={href}
+              aria-current={
+                pathname === href || pathname.startsWith(`${href}/`)
+                  ? "page"
+                  : undefined
+              }
+            >
+              {t(key)}
+            </Link>
+          ))}
           <select
             aria-label="Language"
             value={lang}
@@ -247,9 +292,49 @@ export function Shell({
           </select>
         </nav>
       </header>
-      {children}
-    </main>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="suite-main suite-content"
+      >
+        {children}
+      </main>
+      <footer className="suite-footer">
+        <span>
+          <ShieldCheck size={16} aria-hidden="true" />
+          {t("confidential")}
+        </span>
+        <span>Speak Up · Lixionary</span>
+      </footer>
+    </div>
   );
+}
+
+export function StatusBadge({
+  state,
+  children,
+}: {
+  state: string;
+  children: ReactNode;
+}) {
+  const tone = ["overdue", "rejected", "hold", "critical"].includes(state)
+    ? "danger"
+    : [
+          "pending",
+          "quarantined",
+          "waiting_reporter",
+          "closure_review",
+          "high",
+        ].includes(state)
+      ? "warn"
+      : ["closed", "verified", "published", "substantiated"].includes(state)
+        ? "ok"
+        : ["received", "triage", "investigating", "unread"].includes(state)
+          ? "info"
+          : ["admin", "manager", "analyst"].includes(state)
+            ? "accent"
+            : "neutral";
+  return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 export function Field({
   label,

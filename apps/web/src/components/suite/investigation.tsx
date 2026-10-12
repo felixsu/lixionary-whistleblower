@@ -9,6 +9,7 @@ import {
   Select,
   Text,
   useAction,
+  StatusBadge,
   type Lang,
 } from "./common";
 type Row = Record<string, unknown>;
@@ -88,9 +89,11 @@ export function Investigation({
         <h1>
           {r.caseCode} · {r.content.title}
         </h1>
-        <span className="badge">{t(r.state)}</span>
-        <span className="badge">{t(r.verification.state)}</span>
-        {r.hold && <span className="badge">{t("hold")}</span>}
+        <StatusBadge state={r.state}>{t(r.state)}</StatusBadge>
+        <StatusBadge state={r.verification.state}>
+          {t(r.verification.state)}
+        </StatusBadge>
+        {r.hold && <StatusBadge state="hold">{t("hold")}</StatusBadge>}
         <p>{r.content.summary}</p>
         {Object.entries(r.content.details ?? {})
           .filter(([, v]) => v)

@@ -22,8 +22,10 @@ export default function Login() {
     [sent, setSent] = useState(false);
   return (
     <Shell language={l}>
-      <section>
+      <section className="auth-card">
+        <p className="eyebrow">{t("staffAccess")}</p>
         <h1>{t("staff")}</h1>
+        {stage === "password" && <p className="muted">{t("staffIntro")}</p>}
         <ErrorBox error={a.error} />
         {stage === "password" ? (
           <form
@@ -73,7 +75,11 @@ export default function Login() {
               />
             )}
             <button disabled={a.busy}>{t(reset ? "reset" : "login")}</button>
-            <button type="button" onClick={() => setReset(!reset)}>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setReset(!reset)}
+            >
               {t(reset ? "login" : "reset")}
             </button>
             {sent && (

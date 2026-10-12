@@ -2,6 +2,12 @@
 
 This document describes the implementation on `main`. [gaps.md](gaps.md) remains the historical assessment of the original MVP preserved on `main-mvp`; its source references describe that baseline, not the current suite. The new suite uses fresh databases and volumes and provides no MVP data import.
 
+## Design system
+
+The web app adopts the Lixionary Design System v1.1.0 foundations from Jira's `apps/web/src/styles/tokens.css` and the accessible controls and status colors from IAM's `frontend/src/styles/index.css`. `apps/web/src/app/tokens.css` holds the local foundation; `globals.css` adds reporting-specific layouts, responsive styles and a dark palette. Changes to these local copies are reviewed independently of the source applications.
+
+Cormorant Garamond headings, Inter body text and JetBrains Mono secrets are bundled using `next/font/local`. The Latin WOFF2 files come from IAM's Fontsource 5.3.0 packages; their SIL Open Font License files are included under `apps/web/src/app/fonts`. Browser font requests stay on the application origin. The shared shell, forms, status badges and tables use the same foundation across reporter and staff screens, with visible keyboard focus, reduced-motion and forced-color overrides.
+
 ## Product decisions
 
 One company per deployment; public, accountless reports; English and Indonesian. Contacts are optional and hidden from all application staff. OTP confirms destination control, not legal identity. Reporter recovery uses a separately saved recovery secret, never an email or phone lookup. Staff use local passwords and mandatory authenticator MFA. System administrators manage the company but cannot read case narratives or evidence. Managers review cases in their current team; analysts need a current team membership and explicit assignment. Recusal removes access. Leadership or review-team allegations go to an independent restricted team with no overlapping memberships. A different manager must approve closure.

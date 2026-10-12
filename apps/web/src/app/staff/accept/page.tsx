@@ -19,7 +19,7 @@ export default function Accept() {
   }, []);
   return (
     <Shell language={l}>
-      <section>
+      <section className="auth-card">
         <h1>{l.t("newPassword")}</h1>
         <ErrorBox error={a.error} />
         <form
