@@ -44,10 +44,11 @@ test("staff MFA and assigned review workflow preserve contact privacy", async ({
       exact: true,
     })
     .click();
+  await expect(page).toHaveURL(/\/staff\/cases$/);
   await expect(
-    page.getByRole("heading", { name: `E2E ${name}`, exact: true }),
+    page.getByRole("heading", { name: id ? "Kasus" : "Cases", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /WB-/ }).first().click();
+  await page.getByRole("link", { name: /WB-/ }).first().click();
   await expect(page.getByRole("heading", { name: /WB-/ })).toBeVisible();
   expect(await page.locator("main").textContent()).not.toContain(
     "e2e-private-",
@@ -59,6 +60,15 @@ test("staff MFA and assigned review workflow preserve contact privacy", async ({
     exact: true,
   });
   if (await triage.count()) await triage.click();
+  if (id)
+    await page
+      .getByRole("combobox", { name: "Bagian kasus" })
+      .selectOption(page.url().replace(/^https?:\/\/[^/]+/, "") + "/messages");
+  else
+    await page
+      .locator(".case-sections")
+      .getByRole("link", { name: "Private conversation", exact: true })
+      .click();
   await page
     .getByLabel(id ? "Pesan" : "Message", { exact: true })
     .fill(
@@ -112,9 +122,18 @@ test("administration manages configuration without viewing case or reporter iden
   await expect(
     page.getByRole("heading", { name: "Company settings" }),
   ).toBeVisible();
+  await expect(page).toHaveURL(/\/staff\/admin\/settings$/);
+  await page
+    .locator("aside")
+    .getByRole("link", { name: "Review teams", exact: true })
+    .click();
   await expect(
-    page.getByRole("heading", { name: "Review teams" }),
+    page.getByRole("heading", { name: "Review teams", exact: true }),
   ).toBeVisible();
+  await page
+    .locator("aside")
+    .getByRole("link", { name: "Company settings", exact: true })
+    .click();
   expect(await page.locator("main").textContent()).not.toContain(
     "e2e-private-",
   );

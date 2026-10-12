@@ -223,6 +223,47 @@ export const strings = {
   check: ["Check", "Periksa"],
   severity: ["Severity", "Keparahan"],
   normal: ["Normal", "Normal"],
+  menu: ["Menu", "Menu"],
+  closeMenu: ["Close menu", "Tutup menu"],
+  staffMembers: ["Staff", "Staf"],
+  statistics: ["Statistics", "Statistik"],
+  account: ["Account", "Akun"],
+  overview: ["Overview", "Ringkasan"],
+  investigation: ["Investigation", "Penyelidikan"],
+  closureMenu: ["Closure & legal hold", "Penutupan & penahanan hukum"],
+  caseSection: ["Case section", "Bagian kasus"],
+  accessDenied: [
+    "You do not have access to this page",
+    "Anda tidak memiliki akses ke halaman ini",
+  ],
+  returnToWork: ["Return to workspace", "Kembali ke ruang kerja"],
+  retryConnection: [
+    "Check your connection and reload to try again.",
+    "Periksa koneksi Anda dan muat ulang untuk mencoba lagi.",
+  ],
+  discardDraft: [
+    "Discard unsaved changes",
+    "Buang perubahan yang belum disimpan",
+  ],
+  noCases: [
+    "No cases match this filter.",
+    "Tidak ada kasus yang sesuai filter ini.",
+  ],
+  unavailableCase: [
+    "This case is unavailable or you do not have access.",
+    "Kasus ini tidak tersedia atau Anda tidak memiliki akses.",
+  ],
+  company: ["Company", "Perusahaan"],
+  policies: ["Policies and notification text", "Kebijakan dan teks notifikasi"],
+  categoriesUnits: [
+    "Categories and business units",
+    "Kategori dan unit bisnis",
+  ],
+  routingDeadlines: ["Routing and deadlines", "Perutean dan tenggat"],
+  assistedIntake: ["Assisted intake", "Panduan pelaporan"],
+  policyHistory: ["Policy history", "Riwayat kebijakan"],
+  savedChanges: ["Changes saved", "Perubahan tersimpan"],
+  noEvidence: ["No shared evidence yet.", "Belum ada bukti yang dibagikan."],
 } satisfies Record<string, readonly [string, string]>;
 export type Lang = "en" | "id";
 export function useLanguage() {

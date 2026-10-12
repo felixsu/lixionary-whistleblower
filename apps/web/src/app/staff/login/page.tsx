@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { safeStaffReturn } from "@/components/suite/staff-navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "@/lib/api";
 import {
@@ -21,6 +22,11 @@ export default function Login() {
     [codes, setCodes] = useState<string[]>([]),
     [reset, setReset] = useState(false),
     [sent, setSent] = useState(false);
+  function finishLogin() {
+    window.location.href = safeStaffReturn(
+      new URLSearchParams(window.location.search).get("next"),
+    );
+  }
   return (
     <Shell language={l}>
       <section className="auth-card">
@@ -105,7 +111,7 @@ export default function Login() {
                 if (r.recoveryCodes.length) {
                   setCodes(r.recoveryCodes);
                   setStage("saved");
-                } else window.location.href = "/staff";
+                } else finishLogin();
               });
             }}
           >
@@ -157,7 +163,7 @@ export default function Login() {
             <button
               onClick={() => {
                 setCodes([]);
-                window.location.href = "/staff";
+                finishLogin();
               }}
             >
               {t("saved")}

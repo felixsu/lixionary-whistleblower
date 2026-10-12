@@ -45,11 +45,11 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 
 ## Versioning
 
-The root `package.json` is the release-version source of truth. All workspace packages share version `0.2.1`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.3.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
 
 ```sh
 pnpm version:check          # Validate every workspace package
-pnpm version:bump patch     # 0.2.1 → 0.2.2
+pnpm version:bump patch     # 0.3.0 → 0.3.1
 pnpm version:bump minor     # Advance the minor version and reset patch
 pnpm version:bump major     # Advance the major version and reset minor/patch
 pnpm version:bump 1.2.3     # Set an explicit, newer release version

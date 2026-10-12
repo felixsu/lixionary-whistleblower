@@ -16,7 +16,10 @@ export class ApiError extends Error {
 
 type Options = Omit<RequestInit, "body"> & { body?: unknown };
 
-export async function api<T>(path: string, { body, headers, ...init }: Options = {}): Promise<T> {
+export async function api<T>(
+  path: string,
+  { body, headers, ...init }: Options = {},
+): Promise<T> {
   const isForm = body instanceof FormData;
   const res = await fetch(path, {
     ...init,
@@ -24,7 +27,9 @@ export async function api<T>(path: string, { body, headers, ...init }: Options =
     headers: {
       // Admin API requires this custom header on mutations (CSRF defence); harmless elsewhere.
       "x-csrf": "1",
-      ...(body !== undefined && !isForm ? { "Content-Type": "application/json" } : {}),
+      ...(body !== undefined && !isForm
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...headers,
     },
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
@@ -32,6 +37,16 @@ export async function api<T>(path: string, { body, headers, ...init }: Options =
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (
+      typeof window !== "undefined" &&
+      (path.startsWith("/api/cases") ||
+        path.startsWith("/api/admin/") ||
+        path === "/api/staff/me" ||
+        path.startsWith("/api/staff/sessions")) &&
+      (res.status === 401 || data.error === "mfa_required")
+    ) {
+      window.dispatchEvent(new Event("wb:staff-expired"));
+    }
     throw new ApiError(
       res.status,
       data.error ?? "error",
@@ -44,6 +59,7 @@ export async function api<T>(path: string, { body, headers, ...init }: Options =
 
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
-  if (err instanceof TypeError) return "Can't reach the server. Check your connection and try again.";
+  if (err instanceof TypeError)
+    return "Can't reach the server. Check your connection and try again.";
   return "Something went wrong. Please try again.";
 }

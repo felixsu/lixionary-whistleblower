@@ -84,3 +84,38 @@ This verifies installation and isolation, not completed operational onboarding. 
 - Audit chains detect modification relative to retained checkpoints. A database/host owner can still replace local history; secure independent offsite checkpoint access is necessary.
 - Backup snapshots containing held cases are kept until an authorized hold review. Deletion cannot remove expired personal data from an immutable held snapshot; restoration must replay the newest deletion and hold manifests before public access.
 - Browser tests cover Chromium desktop and a mobile viewport, keyboard form controls, labels and layout. They do not replace a full assistive-technology or independent penetration test.
+
+## Staff frontend routes
+
+Authenticated staff pages share a role-aware sidebar. At widths below 900px, Menu opens a modal navigation drawer; desktop keeps the sidebar visible. Login and invitation/password acceptance retain the public shell. `/staff` redirects reviewers to Cases and administrators to Company settings.
+
+Shared routes:
+
+- `/staff/analytics`: aggregate statistics with the existing role scope and small-group suppression.
+- `/staff/account`: staff identity and signed-in session revocation.
+
+Reviewer routes (case manager and analyst):
+
+- `/staff/cases`: case queue; `state` and `page` query parameters preserve filtering and pagination in browser history.
+- `/staff/cases/[id]`: report overview, assignment, classification, escalation, subscription, and recusal.
+- `/staff/cases/[id]/messages`: reporter conversation and contact-verification requests.
+- `/staff/cases/[id]/evidence`: published evidence downloads.
+- `/staff/cases/[id]/investigation`: internal notes and findings.
+- `/staff/cases/[id]/actions`: corrective actions and completion evidence.
+- `/staff/cases/[id]/closure`: closure review, legal hold, and reopening.
+- `/staff/cases/[id]/history`: existing case audit history.
+
+Administrator routes:
+
+- `/staff/admin/staff`: invitations, staff roles, and activation.
+- `/staff/admin/teams`: review teams and membership.
+- `/staff/admin/settings`: expandable company, policy, category, routing, retention, and assisted-intake groups; one complete-policy Save operation.
+- `/staff/admin/settings/history`: policy versions.
+- `/staff/admin/operations`: delivery and retention status.
+- `/staff/admin/audit`: audit history, pagination, and complete JSON export.
+
+Every route supports direct entry and reload. The shared layout checks the authenticated identity and MFA before showing protected content. The API remains the authorization authority. Session expiry returns staff to sign-in with an allowlisted internal return path; sign-in returns them to that page after MFA.
+
+Unsaved forms stay in memory during navigation within the authenticated workspace. Drafts are scoped by case/section or administration form and cleared after successful submission, explicit discard, sign-out, session expiry, or an identity/role change. Drafts never enter browser storage. Refreshing or closing the page discards them; a standard browser unload warning is registered while drafts exist. Polling refreshes server records without replacing edited fields. Leaving the authenticated workspace also ends draft retention.
+
+Staff-routing verification on 12 October 2026: workspace type checks, production builds, the Docker frontend build, changed-file formatting, and Git whitespace checks passed. The complete Chromium browser suite passed 33 tests with one intentionally skipped duplicate mobile administrator test against the updated local Docker suite. This includes 24 synthetic API-fixture navigation scenarios, four MFA scenarios, and five real local reporter/staff/administrator flows. Desktop settings and mobile drawer screenshots were inspected. These checks cover local behavior, not a production release.
