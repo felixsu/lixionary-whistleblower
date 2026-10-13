@@ -64,7 +64,35 @@ export function startJobs(
             config.keys,
             `job:${j.id}`,
           );
-          if (j.kind === "otp") {
+          if (j.kind === "admission_otp") {
+            const [c] = await rows(
+              db,
+              sql`select id from admission_challenges where id=${b.challengeId} and used_at is null and expires_at>now()`,
+            );
+            if (c && Number(b.expiresAt) > Date.now())
+              await deliver(
+                String(b.destination),
+                "email",
+                b.locale === "id"
+                  ? `Kode verifikasi Anda adalah ${b.code}. Berlaku 5 menit. Jangan bagikan kode kepada staf.`
+                  : `Your verification code is ${b.code}. It expires in 5 minutes. Never share it with staff.`,
+              );
+          } else if (j.kind === "admission_decision") {
+            const approved = b.decision === "approved";
+            await deliver(
+              String(b.destination),
+              "email",
+              b.locale === "id"
+                ? approved
+                  ? `Permintaan akses Anda disetujui. Kembali ke ${config.webUrl}/report dan verifikasi email Anda untuk membuat laporan.`
+                  : "Permintaan akses Anda ditolak. Hubungi administrator perusahaan untuk informasi lebih lanjut."
+                : approved
+                  ? `Your access request was approved. Return to ${config.webUrl}/report and verify your email to create a report.`
+                  : "Your access request was declined. Contact your company administrator for more information.",
+            );
+          } else if (j.kind === "directory_audit")
+            await caseCall(config, "directory-audit", b);
+          else if (j.kind === "otp") {
             if (Number(b.expiresAt) > Date.now())
               await deliver(
                 String(b.destination),
@@ -242,6 +270,20 @@ export function startJobs(
   };
 }
 export async function expire(db: Db, config: Config) {
+  await db.transaction(async (tx) => {
+    await rows(
+      tx,
+      sql`delete from admission_challenges where expires_at<now()-interval '1 day'`,
+    );
+    await rows(
+      tx,
+      sql`delete from intakes where case_id is null and admission_id in (select id from admission_grants where revoked_at is not null or expires_at<now()-interval '1 day')`,
+    );
+    await rows(
+      tx,
+      sql`delete from admission_grants where (reserved_at is not null and reserved_at<now()-interval '1 day') or (reserved_at is null and (revoked_at is not null or expires_at<now()-interval '1 day'))`,
+    );
+  });
   const info = (await (await caseCall(config, "retention", {})).json()) as {
     settings: CompanySettings;
     configured: boolean;
@@ -258,6 +300,10 @@ export async function expire(db: Db, config: Config) {
         )})`
       : sql`true`;
   const r = info.settings.retention;
+  await rows(
+    db,
+    sql`delete from employee_requests where resolved_at is not null and resolved_at<now()-${r.contacts}*interval '1 day'`,
+  );
   for (const kind of ["contacts", "transcripts", "evidence"] as const) {
     const table =
       kind === "transcripts"

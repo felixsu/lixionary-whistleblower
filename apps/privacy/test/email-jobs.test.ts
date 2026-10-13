@@ -11,7 +11,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function exercise(expired: boolean, rejected: boolean) {
+async function exercise(
+  expired: boolean,
+  rejected: boolean,
+  kind = "otp",
+  superseded = false,
+) {
   vi.useFakeTimers();
   const keys = { active: "a", keys: { a: randomBytes(32).toString("base64") } };
   const config = loadConfig({
@@ -29,6 +34,7 @@ async function exercise(expired: boolean, rejected: boolean) {
   const id = randomUUID();
   const body = {
     kind: "email",
+    challengeId: randomUUID(),
     destination: "synthetic-private@example.test",
     code: "123456",
     expiresAt: Date.now() + (expired ? -1000 : 300000),
@@ -49,13 +55,15 @@ async function exercise(expired: boolean, rejected: boolean) {
         return [
           {
             id,
-            kind: "otp",
+            kind,
             body_enc: seal(body, keys, `job:${id}`),
             attempts: 1,
             lease_at: new Date(),
           },
         ];
       }
+      if (sql.startsWith("select id from admission_challenges"))
+        return superseded ? [] : [{ id: body.challengeId }];
       if (sql.startsWith("update delivery_jobs set sent_at")) sent = true;
       if (sql.includes("error_code='delivery_failed'")) retry = true;
       return [];
@@ -74,9 +82,9 @@ async function exercise(expired: boolean, rejected: boolean) {
   const stop = startJobs(db, config, log);
   try {
     await vi.waitFor(() => expect(sent || retry).toBe(true));
-    expect(sent).toBe(!rejected || expired);
-    expect(retry).toBe(rejected && !expired);
-    expect(fetch).toHaveBeenCalledTimes(expired ? 0 : 1);
+    expect(sent).toBe(!rejected || expired || superseded);
+    expect(retry).toBe(rejected && !expired && !superseded);
+    expect(fetch).toHaveBeenCalledTimes(expired || superseded ? 0 : 1);
     expect(JSON.stringify(log.error.mock.calls)).not.toContain(
       body.destination,
     );
@@ -91,3 +99,12 @@ it("private worker retries rejected Zoho delivery without recording secrets", ()
   exercise(false, true));
 it("private worker discards expired OTPs without contacting Zoho", () =>
   exercise(true, false));
+
+it("delivers employee admission OTPs", () =>
+  exercise(false, false, "admission_otp"));
+it("retries failed admission OTP delivery", () =>
+  exercise(false, true, "admission_otp"));
+it("discards superseded admission OTPs", () =>
+  exercise(false, false, "admission_otp", true));
+it("discards expired admission OTPs", () =>
+  exercise(true, false, "admission_otp"));

@@ -102,8 +102,8 @@ export const defaultSettings: CompanySettings = {
     id: "Laporkan dugaan pelanggaran dengan itikad baik. Laporan Anda akan ditinjau melalui platform ini.",
   },
   privacyNotice: {
-    en: "Contacts are optional and hidden from staff. Report content and circumstances may identify you. External delivery providers process destinations; optional AI processes your conversation only with consent.",
-    id: "Kontak bersifat opsional dan disembunyikan dari staf. Isi dan situasi laporan dapat mengidentifikasi Anda. Penyedia pengiriman eksternal memproses tujuan; AI opsional memproses percakapan hanya dengan persetujuan.",
+    en: "Employee email verification is required before reporting. Administrators manage the employee directory, but employee identity is not included in reports. Optional case contacts are hidden from staff. Report content and circumstances may identify you. External delivery providers process destinations; optional AI processes your conversation only with consent.",
+    id: "Verifikasi email karyawan wajib dilakukan sebelum melapor. Administrator mengelola daftar karyawan, tetapi identitas karyawan tidak disertakan dalam laporan. Kontak laporan opsional disembunyikan dari staf. Isi dan situasi laporan dapat mengidentifikasi Anda. Penyedia pengiriman eksternal memproses tujuan; AI opsional memproses percakapan hanya dengan persetujuan.",
   },
   categories: [
     { key: "fraud", en: "Fraud", id: "Penipuan" },

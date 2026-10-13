@@ -1,8 +1,10 @@
 # Speak Up — company whistleblowing suite
 
-An accountless reporting portal with anonymous submission, a private case mailbox, optional email/phone verification, assigned investigators, independent closure approval, and company administration. English and Indonesian interfaces are included.
+An internal employee reporting portal with email OTP admission, anonymous submission, a private case mailbox, optional private case contacts, assigned investigators, independent closure approval, and company administration. English and Indonesian interfaces are included.
 
-Reporter contacts and raw assistant conversations live in a separate service, database, encryption keyring, and file vault. Analysts, managers, and system administrators have no contact-reveal endpoint. OTP proves control of a contact destination; it does not prove a person's legal identity. Reporters review their narrative and sanitized evidence before staff receive them.
+The employee directory, access requests, reporter contacts, and raw assistant conversations live in a separate service, database, encryption keyring, and file vault. Administrators manage employee name/email/phone records separately from staff accounts; reviewers cannot access the directory. Analysts, managers, and system administrators have no contact-reveal endpoint. OTP proves control of a contact destination; it does not prove a person's legal identity. Reporters review their narrative and sanitized evidence before staff receive them.
+
+Creating a report requires an email registered and active in the employee directory. Unknown or inactive addresses are rejected without a report OTP or access-request form. Registered reporters verify a six-digit email OTP before either manual reporting or conversational AI. Directory eligibility does not require a staff account, and the email is not included in the submitted report.
 
 `main` contains the new suite. `main-mvp` preserves the original MVP without the gap assessment. This implementation starts with **new suite databases and volumes**; it does not migrate or import MVP reports.
 
@@ -27,6 +29,12 @@ docker compose --env-file .suite-dev/suite.env run --rm --no-deps case-migrate \
 
 Enter a password of at least 15 characters through stdin. Log in at `/staff/login` and scan the enrollment QR code with your authenticator app, or use the manual setup key or app link. Enter the app's six-digit code to complete enrollment and save the single-use recovery codes. Invite two managers for the standard team and two different managers for the independent team, create those teams, and configure the company policy, categories, deadlines, and all six retention periods. Production submissions are unavailable until this setup is complete.
 
+Before reporting, employees verify a registered, active email through a five-minute OTP. Unknown or inactive emails are rejected without an access-request form; contact the administrator to register an eligible email before returning to verify it. Phone admission remains disabled. Each reporting verification permits one report, one AI conversation, up to 30 AI messages and three draft attempts, for two hours. Reporting grants are kept only in browser memory; email reverification can resume an expired unfinished grant without resetting its AI budget. Gate verification does not enroll a case notification contact or enable email-based case recovery.
+
+Administrators manage **Employees** and **Account requests** at `/staff/admin/employees`. Add the employee directory before opening the channel. Existing case-code/PIN access remains independent of admission. Employee associations are removed when a submission is reserved; case records, staff APIs and case audits do not contain employee IDs or admission tokens.
+
+Administrators manage staff accounts at `/staff/admin/users`: a table-only list links to separate creation and prefilled edit pages. Creation sends an invitation; editing supports name, role and active status with a read-only account email, plus password reset emails for active accounts. Reset links expire after 30 minutes and preserve MFA. The former `/staff/admin/staff` page redirects to Users. Workspace and Administration menu groups retain existing role permissions on desktop and mobile.
+
 Development SMTP goes to Mailpit. SMS requires Twilio credentials. AI requires a MiniMax key **and** the company AI setting; it is off by default. Generated secrets are file based, ignored by Git, and never printed by setup.
 
 Production email supports Zoho CPaaS HTTP delivery for both staff and reporters. Install the API key directly on the VPS in `.suite-config/secrets/zoho_api_key` (owner `lixsu`, mode 600), then run `pnpm email:configure:vps --check` and `pnpm email:configure:vps` here before deployment. These commands never copy or print the key. See the [Zoho setup and email checks](docs/runbook.md#zoho-transactional-email) for details. Local development continues to use Mailpit; phone verification remains unavailable until Twilio is configured.
@@ -45,11 +53,11 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 
 ## Versioning
 
-The root `package.json` is the release-version source of truth. All workspace packages share version `0.3.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.4.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
 
 ```sh
 pnpm version:check          # Validate every workspace package
-pnpm version:bump patch     # 0.3.0 → 0.3.1
+pnpm version:bump patch     # 0.4.0 → 0.4.1
 pnpm version:bump minor     # Advance the minor version and reset patch
 pnpm version:bump major     # Advance the major version and reset minor/patch
 pnpm version:bump 1.2.3     # Set an explicit, newer release version
@@ -81,6 +89,8 @@ pnpm --filter @whistle/web exec playwright install chromium
 pnpm test:browser
 node scripts/evidence-smoke.mjs
 ```
+
+Before each complete browser run, reseed the synthetic accounts: the real staff tests enroll MFA. The development seed also resets admission send budgets only for its three synthetic reporter mailboxes and submission budgets only for the current development frontend addresses, after checking that all staff are synthetic accounts. Direct reporter reruns without reseeding still respect the admission resend/hour/day limits.
 
 The browser seed refuses non-test staff accounts and production configuration. These scripts create synthetic reports and Mailpit messages. Do not run them against real company data.
 

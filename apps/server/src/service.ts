@@ -222,12 +222,26 @@ export async function privacyCall(
     body: raw,
     signal: AbortSignal.timeout(10000),
   });
-  if (!result.ok)
+  if (!result.ok) {
+    const body = (await result.json().catch(() => ({}))) as { error?: string };
+    const allowed = [
+      "report_access_required",
+      "report_busy",
+      "invalid_intake",
+      "duplicate_email",
+      "not_found",
+      "request_resolved",
+      "validation_error",
+    ];
+    const code = allowed.includes(body.error ?? "")
+      ? body.error!
+      : "privacy_unavailable";
     throw new HttpError(
-      503,
-      "Private service unavailable",
-      "privacy_unavailable",
+      code === "privacy_unavailable" ? 503 : result.status,
+      "Private service request failed",
+      code,
     );
+  }
   return result;
 }
 export function reporterCapability(

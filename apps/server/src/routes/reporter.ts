@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { sql } from "drizzle-orm";
 import { randomUUID, randomInt } from "node:crypto";
 import { z } from "zod";
-import { suiteReportSchema } from "@whistle/shared";
+import { suiteReportSchema, submissionSecretsSchema } from "@whistle/shared";
 import {
   checkSecret,
   hashSecret,
@@ -58,6 +58,14 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
   app.post("/reports", async (req, reply) => {
     csrf(req);
     if (
+      !/^[A-Za-z0-9_-]{43}$/.test(String(req.headers["x-report-access"] ?? ""))
+    )
+      throw new HttpError(
+        401,
+        "Employee verification required",
+        "report_access_required",
+      );
+    if (
       !(await limiter.hit(mac(config.abuseKey, "submit:" + req.ip), 10, 3600))
     )
       throw new HttpError(429, "Limit", "rate_limit");
@@ -66,14 +74,9 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
     if (config.production && !s.configured)
       throw new HttpError(503, "Setup required", "setup_required");
     // Retry credentials stay in browser memory. Only their hashes persist.
-    const retry = z
-      .object({
-        pin: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-        recoveryCode: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-        submissionToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-      })
-      .optional()
-      .parse((req.body as { submission?: unknown }).submission);
+    const retry = submissionSecretsSchema.parse(
+      (req.body as { submission?: unknown }).submission,
+    );
     const submissionHash = retry ? digest(retry.submissionToken) : null;
     const hex = submissionHash?.slice(0, 32);
     const id = hex
@@ -106,6 +109,11 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
               "Retry credentials changed",
               "submission_conflict",
             );
+          await privacyCall(req, "admission/reserve", {
+            reportToken: String(req.headers["x-report-access"] ?? ""),
+            submissionHash: submissionHash!,
+            caseId: id,
+          });
           return existing;
         }
       }
@@ -120,15 +128,14 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
           "Invalid category or unit",
           "validation_error",
         );
-      // Reserve the raw transcript before committing the published report. A retry
-      // uses the same case ID; abandoned reservations are reconciled separately.
-      if (v.intakeId && v.intakeToken)
-        await privacyCall(req, "claim", {
-          caseId: id,
-          intakeId: v.intakeId,
-          intakeToken: v.intakeToken,
-          eventId: randomUUID(),
-        });
+      await privacyCall(req, "admission/reserve", {
+        reportToken: String(req.headers["x-report-access"] ?? ""),
+        submissionHash: submissionHash!,
+        caseId: id,
+        ...(v.intakeId
+          ? { intakeId: v.intakeId, intakeToken: v.intakeToken }
+          : {}),
+      });
       const [r] = await rows<CaseRow>(
         tx,
         sql`insert into cases(id,case_code,pin_hash,recovery_hash,submission_hash,content_enc,category,sensitive,team_id) values(${id},${code()},${await hashSecret(pin)},${await hashSecret(recoveryCode)},${submissionHash},${seal({ ...v, intakeId: undefined, intakeToken: undefined }, config.keys, "case:" + id)},${v.category},${v.sensitive},${v.sensitive ? s.body.restrictedTeamId : s.body.defaultTeamId}) returning *`,

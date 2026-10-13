@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
+import { ReportGate } from "@/components/suite/report-gate";
 import { api, ApiError } from "@/lib/api";
 import {
   Shell,
@@ -32,6 +33,23 @@ export default function Report() {
       pin: string;
       recoveryCode: string;
     }>();
+  const [reportToken, setReportToken] = useState(""),
+    [gateOpen, setGateOpen] = useState(true);
+  const reportApi = async <T,>(
+    path: string,
+    options: Parameters<typeof api>[1] = {},
+  ) => {
+    try {
+      return await api<T>(path, {
+        ...options,
+        headers: { ...options.headers, "x-report-access": reportToken },
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "report_access_required")
+        setGateOpen(true);
+      throw e;
+    }
+  };
   const submission = useRef<{
     pin: string;
     recoveryCode: string;
@@ -63,7 +81,7 @@ export default function Report() {
       .catch((e) => a.setError(String(e)));
   }, []);
   const aiCall = <T,>(path: string, body?: unknown) =>
-    api<T>(`/privacy/intake/${intake!.id}/${path}`, {
+    reportApi<T>(`/privacy/intake/${intake!.id}/${path}`, {
       method: "POST",
       body,
       headers: { Authorization: `Bearer ${intake!.token}` },
@@ -71,6 +89,31 @@ export default function Report() {
   return (
     <Shell language={l}>
       <ErrorBox error={a.error} />
+      {gateOpen && !receipt && (
+        <ReportGate
+          lang={lang}
+          resumeToken={reportToken || undefined}
+          onVerified={(raw) => {
+            setReportToken(raw);
+            setGateOpen(false);
+            a.setError("");
+          }}
+          onCancel={() => setGateOpen(false)}
+        />
+      )}
+      {!reportToken && !receipt && (
+        <section>
+          <h1>{t("report")}</h1>
+          <p>
+            {lang === "id"
+              ? "Verifikasi email karyawan Anda untuk memulai."
+              : "Verify your employee email to begin."}
+          </p>
+          <button onClick={() => setGateOpen(true)}>
+            {lang === "id" ? "Verifikasi email" : "Verify email"}
+          </button>
+        </section>
+      )}
       {receipt ? (
         <Receipt
           receipt={{ ...receipt, recoverySecret: receipt.recoveryCode }}
@@ -80,7 +123,7 @@ export default function Report() {
             window.location.href = "/case";
           }}
         />
-      ) : company ? (
+      ) : company && reportToken ? (
         <>
           <h1>{t("report")}</h1>
           <section>
@@ -118,7 +161,7 @@ export default function Report() {
                     onClick={() =>
                       void a.run(async () => {
                         setIntake(
-                          await api("/privacy/intake", {
+                          await reportApi("/privacy/intake", {
                             method: "POST",
                             body: {
                               consent: true,
@@ -199,7 +242,7 @@ export default function Report() {
                     disabled={a.busy}
                     onClick={() =>
                       void a.run(async () => {
-                        await api(`/privacy/intake/${intake.id}`, {
+                        await reportApi(`/privacy/intake/${intake.id}`, {
                           method: "DELETE",
                           headers: { Authorization: `Bearer ${intake.token}` },
                         });
@@ -225,7 +268,7 @@ export default function Report() {
                     recoveryCode: newSecret(),
                     submissionToken: newSecret(),
                   };
-                  const r = await api<{
+                  const r = await reportApi<{
                     caseCode: string;
                     pin: string;
                     recoveryCode: string;
@@ -262,6 +305,8 @@ export default function Report() {
                     throw e;
                   });
                   setReceipt(r);
+                  setReportToken("");
+                  setGateOpen(false);
                   submission.current = null;
                   setTitle("");
                   setSummary("");
@@ -366,9 +411,9 @@ export default function Report() {
             </form>
           </section>
         </>
-      ) : (
+      ) : !company ? (
         <p>{t("loading")}</p>
-      )}
+      ) : null}
     </Shell>
   );
 }

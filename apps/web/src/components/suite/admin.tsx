@@ -3,12 +3,8 @@ import Link from "next/link";
 import { useDraftState, useStaff, DiscardDraft } from "./staff-workspace";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type {
-  CompanySettings,
-  StaffIdentity,
-  StaffRole,
-} from "@whistle/shared";
-import { defaultSettings, staffRoles } from "@whistle/shared";
+import type { CompanySettings, StaffIdentity } from "@whistle/shared";
+import { defaultSettings } from "@whistle/shared";
 import { Check, ErrorBox, Field, Select, Text, useAction } from "./common";
 type Staff = StaffIdentity & { active: boolean; mfa_enrolled: boolean };
 type Team = {
@@ -18,7 +14,7 @@ type Team = {
   members: { id: string; name: string; role: string }[];
 };
 export type AdminSection =
-  "staff" | "teams" | "settings" | "history" | "operations" | "audit";
+  "teams" | "settings" | "history" | "operations" | "audit";
 export function Admin({ section }: { section: AdminSection }) {
   const {
     language: { t, lang },
@@ -35,9 +31,6 @@ export function Admin({ section }: { section: AdminSection }) {
     [saved, setSaved] = useState(false),
     [staff, setStaff] = useState<Staff[]>([]),
     [teams, setTeams] = useState<Team[]>([]),
-    [email, setEmail] = useDraftState("admin.staff.email", ""),
-    [name, setName] = useDraftState("admin.staff.name", ""),
-    [role, setRole] = useDraftState<StaffRole>("admin.staff.role", "analyst"),
     [teamName, setTeamName] = useDraftState("admin.teams.teamName", ""),
     [restricted, setRestricted] = useDraftState(
       "admin.teams.restricted",
@@ -66,11 +59,10 @@ export function Admin({ section }: { section: AdminSection }) {
       ]);
       setBaseSettings(s.body);
       setTeams(q.teams);
-    } else if (section === "staff" || section === "teams") {
+    } else if (section === "teams") {
       const p = await api<{ staff: Staff[] }>("/api/admin/staff");
       setStaff(p.staff);
-      if (section === "teams")
-        setTeams((await api<{ teams: Team[] }>("/api/admin/teams")).teams);
+      setTeams((await api<{ teams: Team[] }>("/api/admin/teams")).teams);
     } else if (section === "history") {
       setHistory(
         (await api<{ history: typeof history }>("/api/admin/settings/history"))
@@ -134,124 +126,6 @@ export function Admin({ section }: { section: AdminSection }) {
         </>
       )}
       {saved && <p role="status">{t("savedChanges")}</p>}
-      {section === "staff" && (
-        <section>
-          <h1>{t("staffMembers")}</h1>
-          <h2>{t("invite")}</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void a.run(async () => {
-                await api("/api/admin/staff", {
-                  method: "POST",
-                  body: { email, name, role },
-                });
-                setEmail("");
-                setName("");
-                clearDrafts("admin.staff.");
-                await load();
-              });
-            }}
-          >
-            <div className="grid">
-              <Field
-                label={t("email")}
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <Field
-                label={t("name")}
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <Select
-                label={t("role")}
-                value={role}
-                onChange={(e) => setRole(e.target.value as StaffRole)}
-              >
-                {staffRoles.map((r) => (
-                  <option key={r} value={r}>
-                    {t(r)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <button disabled={a.busy}>{t("invite")}</button>
-            <DiscardDraft prefix="admin.staff." />
-          </form>
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("name")}</th>
-                  <th>{t("role")}</th>
-                  <th>{t("active")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staff.map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      {s.name}
-                      <br />
-                      <small>{s.email}</small>
-                    </td>
-                    <td>
-                      <select
-                        aria-label={`${t("role")} ${s.name}`}
-                        value={s.role}
-                        disabled={a.busy}
-                        onChange={(e) =>
-                          void a.run(async () => {
-                            await api(`/api/admin/staff/${s.id}`, {
-                              method: "PATCH",
-                              body: {
-                                name: s.name,
-                                role: e.target.value,
-                                active: s.active,
-                              },
-                            });
-                            await load();
-                          })
-                        }
-                      >
-                        {staffRoles.map((r) => (
-                          <option key={r} value={r}>
-                            {t(r)}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <Check
-                        label={s.name}
-                        checked={s.active}
-                        disabled={a.busy}
-                        onChange={(e) =>
-                          void a.run(async () => {
-                            await api(`/api/admin/staff/${s.id}`, {
-                              method: "PATCH",
-                              body: {
-                                name: s.name,
-                                role: s.role,
-                                active: e.target.checked,
-                              },
-                            });
-                            await load();
-                          })
-                        }
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
       {section === "teams" && (
         <section>
           <h1>{t("teams")}</h1>

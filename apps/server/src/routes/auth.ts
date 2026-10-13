@@ -11,7 +11,7 @@ import {
   unseal,
 } from "@whistle/runtime";
 import { rows } from "../db/client.js";
-import { audit, enqueue } from "../service.js";
+import { audit } from "../service.js";
 import {
   csrf,
   STAFF_COOKIE,
@@ -20,6 +20,10 @@ import {
   requireStaff,
 } from "../auth.js";
 import { HttpError } from "../lib/errors.js";
+import {
+  limitPasswordReset,
+  queuePasswordReset,
+} from "../staff-password-reset.js";
 const credentials = z.object({
   email: z.email().max(254),
   password: z.string().min(1).max(200),
@@ -174,44 +178,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post("/password/request", async (req) => {
     csrf(req);
     const { email } = z.object({ email: z.email() }).parse(req.body);
-    await limit("reset:" + email.toLowerCase());
+    await limitPasswordReset(limiter, email);
     const [s] = await rows(
       db,
       sql`select id from staff where email=${email.toLowerCase()} and active`,
     );
-    if (s) {
-      const raw = token();
-      await db.transaction(async (tx) => {
-        const [active] = await rows(
-          tx,
-          sql`select id from staff where id=${s.id as string} and active for update`,
-        );
-        if (!active) return;
-        await rows(
-          tx,
-          sql`delete from jobs where staff_id=${s.id as string} and kind='staff_token'`,
-        );
-        await rows(
-          tx,
-          sql`update staff_tokens set used_at=now() where staff_id=${s.id as string} and purpose='password_reset' and used_at is null`,
-        );
-        await rows(
-          tx,
-          sql`insert into staff_tokens(staff_id,token_hash,purpose,expires_at) values(${s.id as string},${digest(raw)},'password_reset',now()+interval '30 minutes')`,
-        );
-        await enqueue(
-          tx,
-          "staff_token",
-          null,
-          {
-            tokenEnc: seal(raw, config.keys, "staff-token"),
-            purpose: "password_reset",
-          },
-          String(s.id),
-        );
-        await audit(tx, String(s.id), "password_reset_requested");
-      });
-    }
+    if (s)
+      await db.transaction((tx) =>
+        queuePasswordReset(tx, config, String(s.id)),
+      );
     return { ok: true };
   });
   app.post("/password/accept", async (req) => {

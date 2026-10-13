@@ -22,4 +22,67 @@ const result = spawnSync(
   ],
   { stdio: "inherit" },
 );
-process.exitCode = result.status ?? 1;
+if (result.status !== 0) process.exit(result.status ?? 1);
+const privateCode = `import postgres from 'postgres'; import {createClient} from 'redis'; import {randomUUID} from 'node:crypto'; import {seal,unseal,mac,parseKeyring} from '@whistle/runtime'; if(process.env.NODE_ENV!=='development')throw new Error('Admission fixture reset is limited to development'); const db=postgres(process.env.PRIVACY_DATABASE_URL,{max:1,onnotice:()=>{}}); const keys=parseKeyring(process.env.VAULT_KEYRING),abuse=process.env.PRIVACY_ABUSE_KEY; try {await db.begin(async tx=>{const existing=await tx\`select id,body_enc from employees\`;if(existing.some(e=>!unseal(e.body_enc,keys,'employee:'+e.id).email.startsWith('e2e-')))throw new Error('Non-test employees present; refusing seed'); for(const label of ['desktop','mobile-id','evidence']){const id=randomUUID(),email='e2e-reporter-'+label+'@example.test',body={name:'E2E Reporter '+label,email,phone:'+628123456789'}; const old=await tx\`select id from employees where email_hash=\${mac(abuse,'employee:'+email)}\`; const employeeId=old[0]?.id??id;await tx\`insert into employees(id,email_hash,body_enc,active) values(\${employeeId},\${mac(abuse,'employee:'+email)},\${seal(body,keys,'employee:'+employeeId)},true) on conflict(email_hash) do update set active=true,body_enc=excluded.body_enc\`;}});const redis=createClient({url:process.env.PRIVACY_REDIS_URL});await redis.connect();try{for(const label of ['desktop','mobile-id','evidence']){const hash=mac(abuse,'employee:e2e-reporter-'+label+'@example.test');await redis.del(['limit:admission-otp:'+hash+':resend','limit:admission-otp:'+hash+':hour','limit:admission-otp:'+hash+':day']);}}finally{await redis.quit();}console.log('Development employee fixtures and admission budgets ready.');}finally{await db.end();}`;
+const privateResult = spawnSync(
+  "docker",
+  [
+    "compose",
+    "--env-file",
+    file,
+    "run",
+    "--rm",
+    "--no-deps",
+    "privacy-api",
+    "node",
+    "--input-type=module",
+    "-e",
+    privateCode,
+  ],
+  { stdio: "inherit" },
+);
+if (privateResult.status !== 0) process.exit(privateResult.status ?? 1);
+// Scope submission-budget cleanup to the current development frontend's addresses.
+const web = spawnSync(
+  "docker",
+  ["compose", "--env-file", file, "ps", "-q", "web"],
+  { encoding: "utf8" },
+);
+if (web.status !== 0)
+  throw new Error("Cannot inspect the development frontend");
+if (web.stdout.trim()) {
+  const inspected = spawnSync(
+    "docker",
+    [
+      "inspect",
+      "--format",
+      "{{json .NetworkSettings.Networks}}",
+      web.stdout.trim(),
+    ],
+    { encoding: "utf8" },
+  );
+  if (inspected.status !== 0)
+    throw new Error("Cannot inspect development frontend addresses");
+  const addresses = Object.values(JSON.parse(inspected.stdout))
+    .flatMap((network) => [network.IPAddress, network.GlobalIPv6Address])
+    .filter(Boolean);
+  const resetCode = `import {createClient} from 'redis'; import postgres from 'postgres'; import {mac} from '@whistle/runtime'; import {loadConfig} from './dist/config.js'; const config=loadConfig(); if(config.env!=='development')throw new Error('Submission fixture reset is limited to development'); const db=postgres(config.dbUrl,{max:1}); try{const staff=await db\`select email from staff\`;if(staff.some(s=>!s.email.startsWith('e2e-')))throw new Error('Non-test staff present; refusing budget reset');const redis=createClient({url:config.redisUrl});await redis.connect();try{for(const ip of ${JSON.stringify(addresses)})await redis.del('limit:'+mac(config.abuseKey,'submit:'+ip));}finally{await redis.quit();}console.log('Development frontend submission budgets ready.');}finally{await db.end();}`;
+  const reset = spawnSync(
+    "docker",
+    [
+      "compose",
+      "--env-file",
+      file,
+      "run",
+      "--rm",
+      "--no-deps",
+      "case-api",
+      "node",
+      "--input-type=module",
+      "-e",
+      resetCode,
+    ],
+    { stdio: "inherit" },
+  );
+  process.exitCode = reset.status ?? 1;
+}

@@ -17,8 +17,14 @@ export const staffNavigation = [
     roles: ["manager", "analyst"],
   },
   {
-    href: "/staff/admin/staff",
-    key: "staffMembers",
+    href: "/staff/admin/users",
+    key: "users",
+    icon: Users,
+    roles: ["admin"],
+  },
+  {
+    href: "/staff/admin/employees",
+    key: "employees",
     icon: Users,
     roles: ["admin"],
   },
@@ -59,6 +65,16 @@ export const staffNavigation = [
   icon: typeof Users;
   roles: StaffRole[];
 }[];
+export const staffNavigationGroups = [
+  {
+    key: "workspace",
+    items: staffNavigation.filter((n) => !n.href.startsWith("/staff/admin/")),
+  },
+  {
+    key: "administration",
+    items: staffNavigation.filter((n) => n.href.startsWith("/staff/admin/")),
+  },
+];
 export const caseSections = [
   { segment: "", key: "overview" },
   { segment: "messages", key: "messages" },
@@ -83,6 +99,11 @@ export function safeStaffReturn(value: string | null): string {
       path === "/staff" ||
       staffNavigation.some((n) => n.href === path) ||
       path === "/staff/admin/settings/history" ||
+      path === "/staff/admin/staff" ||
+      path === "/staff/admin/users/new" ||
+      /^\/staff\/admin\/users\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/edit$/.test(
+        path,
+      ) ||
       /^\/staff\/cases\/[0-9a-f-]{36}(?:\/(?:messages|evidence|investigation|actions|closure|history))?$/.test(
         path,
       );

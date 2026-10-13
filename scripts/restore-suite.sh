@@ -35,7 +35,7 @@ done
 docker volume create "${RESTORE_PROJECT}_suite-vault" >/dev/null
 docker run --rm --network none -v "${RESTORE_PROJECT}_suite-vault:/vault" -v "$snapshot:/snapshot:ro" alpine:3.22 sh -c 'tar -C /vault -xf /snapshot/vault.tar && chown -R 1000:1000 /vault'
 "${compose[@]}" run --rm --no-deps -v "$(dirname "$LATEST_MANIFEST"):/manifest:ro" -e "AUDIT_CHECKPOINT_FILE=/manifest/$(basename "$LATEST_MANIFEST")" case-migrate node dist/cli/audit.js replay-deletions "/manifest/$(basename "$LATEST_MANIFEST")" >/dev/null
-"${compose[@]}" exec -T private-db psql -U postgres -d suite_privacy -v ON_ERROR_STOP=1 -c "UPDATE challenges SET used_at=now(); DELETE FROM delivery_jobs WHERE kind IN ('otp','notify');" >/dev/null
+"${compose[@]}" exec -T private-db psql -U postgres -d suite_privacy -v ON_ERROR_STOP=1 -c "UPDATE challenges SET used_at=now(); UPDATE admission_challenges SET used_at=now(),proof_hash=null; DELETE FROM intakes WHERE case_id IS NULL; DELETE FROM admission_grants; DELETE FROM delivery_jobs WHERE kind IN ('otp','notify','admission_otp','admission_decision');" >/dev/null
 "${compose[@]}" run --rm --no-deps case-migrate node dist/cli/audit.js verify >/dev/null
 printf 'Restored into an isolated, stopped suite. Review manifests and configure test delivery before starting it.\n'
 printf 'Keep deploy/compose.restore.yml included when operating this restore; it removes published host ports.\n'

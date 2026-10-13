@@ -66,18 +66,88 @@ let receipt: {
   },
   caseId: string,
   reporterCookie: string;
+const reportAdmissions = new Map<string, string>();
+async function admission(path: string, body: unknown, reportToken?: string) {
+  return privacy.inject({
+    url: "/privacy/admission/" + path,
+    method: "POST",
+    payload: body as InjectOptions["payload"],
+    headers: {
+      origin,
+      "x-csrf": "1",
+      ...(reportToken ? { "x-report-access": reportToken } : {}),
+    },
+  });
+}
+async function admissionCode(challengeId: string) {
+  const jobs = await rows(
+    vault.db,
+    sql`select id,body_enc from delivery_jobs where kind='admission_otp' order by created_at desc`,
+  );
+  const job = jobs
+    .map((j) =>
+      unseal<Record<string, unknown>>(
+        String(j.body_enc),
+        vaultRing,
+        "job:" + j.id,
+      ),
+    )
+    .find((j) => j.challengeId === challengeId);
+  return String(job!.code);
+}
+async function verifiedAccess() {
+  const id = randomUUID(),
+    email = `employee-${id}@example.test`;
+  await rows(
+    vault.db,
+    sql`insert into employees(id,email_hash,body_enc) values(${id},${mac(shared, "employee:" + email)},${seal({ name: "Synthetic employee", email, phone: "+628123456789" }, vaultRing, "employee:" + id)})`,
+  );
+  const c = await admission("challenge", { email });
+  expect(c.statusCode).toBe(200);
+  const v = await admission("verify", {
+    challengeId: c.json().challengeId,
+    code: await admissionCode(c.json().challengeId),
+  });
+  expect(v.statusCode).toBe(200);
+  return { reportToken: v.json().reportToken as string, id, email };
+}
 async function call(
   path: string,
   body?: unknown,
   cookie?: string,
   method?: string,
 ) {
+  let reportToken: string | undefined;
+  if (path === "/api/reporter/reports" && body && typeof body === "object") {
+    const payload = body as {
+      submission?: {
+        pin: string;
+        recoveryCode: string;
+        submissionToken: string;
+      };
+    };
+    payload.submission ??= {
+      pin: token(),
+      recoveryCode: token(),
+      submissionToken: token(),
+    };
+    reportToken = reportAdmissions.get(payload.submission.submissionToken);
+    if (!reportToken) {
+      reportToken = (await verifiedAccess()).reportToken;
+      reportAdmissions.set(payload.submission.submissionToken, reportToken);
+    }
+  }
   return app.inject({
     url: path,
     method: (method ??
       (body === undefined ? "GET" : "POST")) as InjectOptions["method"],
     payload: body as InjectOptions["payload"],
-    headers: { origin, "x-csrf": "1", ...(cookie ? { cookie } : {}) },
+    headers: {
+      origin,
+      "x-csrf": "1",
+      ...(cookie ? { cookie } : {}),
+      ...(reportToken ? { "x-report-access": reportToken } : {}),
+    },
   });
 }
 function cookie(r: { headers: Record<string, unknown> }) {
@@ -333,6 +403,15 @@ describe("suite privacy and workflow boundaries", () => {
         submissionToken: token(),
       },
     };
+    const access = await verifiedAccess();
+    reportAdmissions.set(
+      payload.submission.submissionToken,
+      access.reportToken,
+    );
+    await rows(
+      vault.db,
+      sql`update intakes set admission_id=(select id from admission_grants where token_hash=${digest(access.reportToken)}) where id=${intakeId}`,
+    );
     const result = await call("/api/reporter/reports", payload);
     expect(result.statusCode).toBe(201);
     const view = await call("/api/reporter/case", undefined, cookie(result));
@@ -361,7 +440,7 @@ describe("suite privacy and workflow boundaries", () => {
           },
         })
       ).statusCode,
-    ).toBe(503);
+    ).toBe(409);
   });
   it("enforces CSRF, assignment and administrative separation", async () => {
     expect(
@@ -732,7 +811,7 @@ describe("suite privacy and workflow boundaries", () => {
           payload: { consent: true, locale: "en", policyVersion: 1 },
         })
       ).statusCode,
-    ).toBe(409);
+    ).toBe(401);
     expect(
       (
         await privacy.inject({
@@ -1028,6 +1107,972 @@ describe("suite privacy and workflow boundaries", () => {
     } finally {
       config.email = previous;
     }
+  });
+  it("provides safe administrator user details and preserves pending invitations during edits", async () => {
+    counts.clear();
+    const email = `invited-${randomUUID()}@example.test`;
+    const invited = await call(
+      "/api/admin/staff",
+      {
+        email: "  " + email.toUpperCase() + "  ",
+        name: "Invited user",
+        role: "analyst",
+      },
+      cookies.admin,
+    );
+    expect(invited.statusCode).toBe(200);
+    const [staff] = await rows(
+      caseStore.db,
+      sql`select id from staff where email=${email}`,
+    );
+    const path = `/api/admin/staff/${staff!.id}`;
+    const detail = await call(path, undefined, cookies.admin);
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().staff).toMatchObject({
+      email,
+      name: "Invited user",
+      role: "analyst",
+      active: false,
+      mfa_enrolled: false,
+    });
+    expect(Object.keys(detail.json().staff).sort()).toEqual(
+      [
+        "id",
+        "email",
+        "name",
+        "role",
+        "active",
+        "mfa_enrolled",
+        "created_at",
+      ].sort(),
+    );
+    expect(
+      (
+        await call(
+          "/api/admin/staff",
+          { email, name: "Duplicate", role: "manager" },
+          cookies.admin,
+        )
+      ).statusCode,
+    ).toBe(409);
+    for (const role of ["manager", "analyst"]) {
+      expect((await call(path, undefined, cookies[role])).statusCode).toBe(403);
+      expect(
+        (await call(path + "/password-reset", {}, cookies[role])).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await call(
+            "/api/admin/staff",
+            {
+              email: `blocked-${randomUUID()}@example.test`,
+              name: "Blocked",
+              role: "admin",
+            },
+            cookies[role],
+          )
+        ).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await call(
+            path,
+            { name: "Blocked", role: "admin", active: true },
+            cookies[role],
+            "PATCH",
+          )
+        ).statusCode,
+      ).toBe(403);
+    }
+    expect((await call(path)).statusCode).toBe(401);
+    expect(
+      (await call(`/api/admin/staff/${randomUUID()}`, undefined, cookies.admin))
+        .statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await call(
+          `/api/admin/staff/${randomUUID()}/password-reset`,
+          {},
+          cookies.admin,
+        )
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (await call(path + "/password-reset", {}, cookies.admin)).json().error,
+    ).toBe("staff_inactive");
+    const pending = await rows(
+      caseStore.db,
+      sql`select body from jobs where staff_id=${staff!.id} and kind='staff_token'`,
+    );
+    const raw = unseal<string>(
+      (pending[0]!.body as Record<string, string>).tokenEnc!,
+      ring,
+      "staff-token",
+    );
+    expect(
+      (
+        await call(
+          path,
+          { name: "Edited invite", role: "manager", active: false },
+          cookies.admin,
+          "PATCH",
+        )
+      ).statusCode,
+    ).toBe(200);
+    const remaining = await rows(
+      caseStore.db,
+      sql`select body from jobs where staff_id=${staff!.id} and kind='staff_token'`,
+    );
+    expect(remaining).toEqual(pending);
+    expect(
+      (await call("/api/staff/password/accept", { token: raw, password }))
+        .statusCode,
+    ).toBe(200);
+    const updated = await call(path, undefined, cookies.admin);
+    expect(updated.json().staff).toMatchObject({
+      name: "Edited invite",
+      role: "manager",
+      active: true,
+      mfa_enrolled: false,
+      email,
+    });
+  });
+  it("shares reset issuance, records the administrator, and revokes sessions only on password acceptance", async () => {
+    counts.clear();
+    const id = randomUUID(),
+      email = `reset-${id}@example.test`,
+      rawSession = token(),
+      mfaEnc = seal("SYNTHETICMFASECRET", ring, "mfa:" + id);
+    await rows(
+      caseStore.db,
+      sql`insert into staff(id,email,name,role,password_hash,mfa_enc) values(${id},${email},'Reset user','analyst',${await hashSecret(password)},${mfaEnc})`,
+    );
+    await rows(
+      caseStore.db,
+      sql`insert into staff_sessions(token_hash,staff_id,mfa,expires_at) values(${digest(rawSession)},${id},true,now()+interval '1 hour')`,
+    );
+    const path = `/api/admin/staff/${id}/password-reset`;
+    const getRaw = async () => {
+      const [job] = await rows(
+        caseStore.db,
+        sql`select body from jobs where staff_id=${id} and kind='staff_token'`,
+      );
+      expect(JSON.stringify(job!.body)).not.toContain(email);
+      return unseal<string>(
+        (job!.body as Record<string, string>).tokenEnc!,
+        ring,
+        "staff-token",
+      );
+    };
+    expect((await call(path, {}, cookies.admin)).json()).toEqual({ ok: true });
+    const first = await getRaw();
+    const existingCookie = "wb_staff=" + rawSession;
+    expect(
+      (await call("/api/staff/me", undefined, existingCookie)).statusCode,
+    ).toBe(200);
+    const events = await rows(
+      caseStore.db,
+      sql`select actor_id,meta from audit_events where action='staff_password_reset_requested' and meta->>'staffId'=${id}`,
+    );
+    expect(events).toEqual([{ actor_id: ids.admin, meta: { staffId: id } }]);
+    expect(
+      (await call("/api/staff/password/request", { email })).statusCode,
+    ).toBe(200);
+    const second = await getRaw();
+    expect(second).not.toBe(first);
+    expect(
+      (await call("/api/staff/password/accept", { token: first, password }))
+        .statusCode,
+    ).toBe(401);
+    await rows(
+      caseStore.db,
+      sql`update staff_tokens set expires_at=now()-interval '1 second' where token_hash=${digest(second)}`,
+    );
+    expect(
+      (await call("/api/staff/password/accept", { token: second, password }))
+        .statusCode,
+    ).toBe(401);
+    expect((await call(path, {}, cookies.admin)).statusCode).toBe(200);
+    const third = await getRaw(),
+      newPassword = "A different test-only long password";
+    expect(
+      (
+        await call("/api/staff/password/accept", {
+          token: third,
+          password: newPassword,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (await call("/api/staff/me", undefined, existingCookie)).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await call("/api/staff/password/accept", {
+          token: third,
+          password: newPassword,
+        })
+      ).statusCode,
+    ).toBe(401);
+    const [after] = await rows(
+      caseStore.db,
+      sql`select mfa_enc from staff where id=${id}`,
+    );
+    expect(after!.mfa_enc).toBe(mfaEnc);
+    expect(
+      (await call("/api/staff/login", { email, password })).statusCode,
+    ).toBe(401);
+    const login = await call("/api/staff/login", {
+      email,
+      password: newPassword,
+    });
+    expect(login.json().mfaEnrolled).toBe(true);
+    expect(
+      (await call(`/api/admin/staff/${id}`, undefined, cookie(login)))
+        .statusCode,
+    ).toBe(403);
+  });
+  it("shares destination reset limits between administrators and self-service recovery", async () => {
+    counts.clear();
+    const id = randomUUID(),
+      email = `reset-limit-${id}@example.test`;
+    await rows(
+      caseStore.db,
+      sql`insert into staff(id,email,name,role,password_hash) values(${id},${email},'Reset budget user','analyst',${await hashSecret(password)})`,
+    );
+    expect(
+      (await call("/api/staff/password/request", { email })).statusCode,
+    ).toBe(200);
+    for (let n = 1; n < 10; n++)
+      expect(
+        (await call(`/api/admin/staff/${id}/password-reset`, {}, cookies.admin))
+          .statusCode,
+      ).toBe(200);
+    expect(
+      (await call(`/api/admin/staff/${id}/password-reset`, {}, cookies.admin))
+        .statusCode,
+    ).toBe(429);
+    expect(
+      (await call("/api/staff/password/request", { email })).statusCode,
+    ).toBe(429);
+    const [pending] = await rows(
+      caseStore.db,
+      sql`select count(*)::int n from staff_tokens where staff_id=${id} and used_at is null`,
+    );
+    expect(pending!.n).toBe(1);
+  });
+  it("enforces the gate for direct report and AI requests", async () => {
+    const submission = {
+      pin: token(),
+      recoveryCode: token(),
+      submissionToken: token(),
+    };
+    const r = await app.inject({
+      url: "/api/reporter/reports",
+      method: "POST",
+      headers: { origin, "x-csrf": "1" },
+      payload: {
+        submission,
+        title: "Blocked test report",
+        summary:
+          "A valid synthetic narrative that must not be submitted without employee verification.",
+        category: "fraud",
+        privacyReviewed: true,
+        policyVersion: 1,
+      },
+    });
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error).toBe("report_access_required");
+    for (const path of [
+      "/privacy/intake",
+      "/privacy/intake/" + randomUUID() + "/messages",
+      "/privacy/intake/" + randomUUID() + "/draft",
+    ]) {
+      const r = await privacy.inject({
+        url: path,
+        method: "POST",
+        headers: { origin, "x-csrf": "1" },
+        payload: {
+          consent: true,
+          locale: "en",
+          policyVersion: 1,
+          body: "Synthetic message",
+        },
+      });
+      expect(r.statusCode).toBe(401);
+    }
+  });
+  it("rejects unknown and inactive report emails without creating OTP jobs or access", async () => {
+    counts.clear();
+    const id = randomUUID(),
+      email = `disabled-${id}@example.test`;
+    await rows(
+      vault.db,
+      sql`insert into employees(id,email_hash,body_enc,active) values(${id},${mac(shared, "employee:" + email)},${seal({ name: "Disabled employee", email, phone: "+628123456789" }, vaultRing, "employee:" + id)},false)`,
+    );
+    const snapshot = async () => {
+      const [r] = await rows(
+        vault.db,
+        sql`select (select count(*) from delivery_jobs where kind='admission_otp') jobs,(select count(*) from admission_challenges) challenges,(select count(*) from admission_grants) grants,(select count(*) from intakes) intakes`,
+      );
+      return r;
+    };
+    const before = await snapshot();
+    for (const [address, status] of [
+      [`unknown-${id}@example.test`, "unregistered"],
+      [email, "disabled"],
+    ]) {
+      const r = await admission("challenge", {
+        email: address,
+        purpose: "report",
+      });
+      expect(r.statusCode).toBe(200);
+      expect(r.json()).toEqual({ status });
+    }
+    expect(await snapshot()).toEqual(before);
+  });
+  it("verifies unregistered requests, approves atomically, and requires a fresh report OTP", async () => {
+    const email = `request-${randomUUID()}@example.test`,
+      employee = { name: "Access applicant", email, phone: "+628123456789" };
+    const c = await admission("challenge", { email });
+    expect(c.json()).toEqual({ status: "unregistered" });
+    expect(
+      (await admission("requests", { ...employee, requestToken: token() }))
+        .statusCode,
+    ).toBe(401);
+    const otp = await admission("challenge", { email, purpose: "request" }),
+      cid = otp.json().challengeId;
+    const proof = await admission("verify", {
+      challengeId: cid,
+      code: await admissionCode(cid),
+    });
+    expect(proof.json().reportToken).toBeUndefined();
+    expect(
+      (
+        await admission("requests", {
+          ...employee,
+          email: "different@example.test",
+          requestToken: proof.json().requestToken,
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await admission("requests", {
+          ...employee,
+          requestToken: proof.json().requestToken,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await admission("requests", {
+          ...employee,
+          requestToken: proof.json().requestToken,
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (await call("/api/admin/employee-requests", undefined, cookies.manager))
+        .statusCode,
+    ).toBe(403);
+    const list = await call(
+      "/api/admin/employee-requests",
+      undefined,
+      cookies.admin,
+    );
+    const request = list
+      .json()
+      .items.find((r: { email: string }) => r.email === email);
+    expect(request.state).toBe("pending");
+    const resolve = () =>
+      call(
+        `/api/admin/employee-requests/${request.id}/resolve`,
+        { decision: "approved", employee },
+        cookies.admin,
+      );
+    const outcomes = await Promise.all([resolve(), resolve()]);
+    expect(outcomes.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+    const [stored] = await rows(
+      vault.db,
+      sql`select body_enc from employees where email_hash=${mac(shared, "employee:" + email)}`,
+    );
+    expect(stored!.body_enc).not.toContain(email);
+    const decision = await rows(
+      vault.db,
+      sql`select id from delivery_jobs where kind='admission_decision'`,
+    );
+    expect(decision.length).toBeGreaterThan(0);
+  });
+  it("persists OTP attempts and rejects expiration, reuse, and disabled employees", async () => {
+    const access = await verifiedAccess();
+    const [c] = await rows(
+      vault.db,
+      sql`select id from admission_challenges where email_hash=${mac(shared, "employee:" + access.email)}`,
+    );
+    expect(
+      (
+        await admission("verify", {
+          challengeId: c!.id,
+          code: await admissionCode(String(c!.id)),
+        })
+      ).statusCode,
+    ).toBe(400);
+    const bad = await verifiedAccess();
+    // Create an isolated challenge without resetting destination send limits.
+    const cid = randomUUID();
+    await rows(
+      vault.db,
+      sql`insert into admission_challenges(id,email_hash,email_enc,purpose,code_hash,locale,expires_at) values(${cid},${mac(shared, "employee:" + bad.email)},${seal(bad.email, vaultRing, "admission-challenge:" + cid)},'report',${mac(shared, cid + ":123456")},'en',now()+interval '5 minutes')`,
+    );
+    for (let i = 0; i < 5; i++)
+      expect(
+        (await admission("verify", { challengeId: cid, code: "000000" }))
+          .statusCode,
+      ).toBe(400);
+    expect(
+      (await admission("verify", { challengeId: cid, code: "123456" }))
+        .statusCode,
+    ).toBe(400);
+    const [attempts] = await rows(
+      vault.db,
+      sql`select attempts from admission_challenges where id=${cid}`,
+    );
+    expect(attempts!.attempts).toBe(5);
+    await rows(
+      vault.db,
+      sql`update admission_challenges set expires_at=now()-interval '1 second',attempts=0 where id=${cid}`,
+    );
+    expect(
+      (await admission("verify", { challengeId: cid, code: "123456" }))
+        .statusCode,
+    ).toBe(400);
+    const disabled = await call(
+      `/api/admin/employees/${access.id}`,
+      {
+        name: "Disabled employee",
+        email: access.email,
+        phone: "+628123456789",
+        active: false,
+      },
+      cookies.admin,
+      "PUT",
+    );
+    expect(disabled.statusCode).toBe(200);
+    expect(
+      (await admission("challenge", { email: access.email })).json(),
+    ).toEqual({ status: "disabled" });
+    const r = await privacy.inject({
+      url: "/privacy/intake",
+      method: "POST",
+      headers: { origin, "x-csrf": "1", "x-report-access": access.reportToken },
+      payload: { consent: true, locale: "en", policyVersion: 1 },
+    });
+    expect(r.statusCode).toBe(401);
+  });
+  it("keeps published reports unlinkable to directory records and limits each grant to one submission", async () => {
+    const access = await verifiedAccess(),
+      submission = {
+        pin: token(),
+        recoveryCode: token(),
+        submissionToken: token(),
+      };
+    const send = (credentials = submission) =>
+      app.inject({
+        url: "/api/reporter/reports",
+        method: "POST",
+        headers: {
+          origin,
+          "x-csrf": "1",
+          "x-report-access": access.reportToken,
+        },
+        payload: {
+          submission: credentials,
+          title: "Anonymous employee report",
+          summary:
+            "A synthetic concern with no employee name or contact embedded in its content.",
+          category: "fraud",
+          privacyReviewed: true,
+          policyVersion: 1,
+        },
+      });
+    const r = await send();
+    expect(r.statusCode).toBe(201);
+    const retry = await send();
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json().caseCode).toBe(r.json().caseCode);
+    expect(
+      (
+        await send({
+          pin: token(),
+          recoveryCode: token(),
+          submissionToken: token(),
+        })
+      ).statusCode,
+    ).toBe(401);
+    const [g] = await rows(
+      vault.db,
+      sql`select * from admission_grants where token_hash=${digest(access.reportToken)}`,
+    );
+    expect(g!.employee_id).toBeNull();
+    const c = await call("/api/reporter/case", undefined, cookie(r));
+    const safe = JSON.stringify(c.json());
+    expect(safe).not.toContain(access.email);
+    expect(safe).not.toContain(access.id);
+    expect(safe).not.toContain(access.reportToken);
+    expect(
+      (await call("/api/admin/employees", undefined, cookies.analyst))
+        .statusCode,
+    ).toBe(403);
+  });
+  it("completes verified email admission, AI intake, draft, and anonymous submission", async () => {
+    counts.clear();
+    const bridge = globalThis.fetch;
+    const aiApp = await buildPrivacy({
+      db: vault.db,
+      config: {
+        ...privacy.privacyDeps.config,
+        ai: {
+          ...privacy.privacyDeps.config.ai,
+          apiKey: "synthetic-fixture-key",
+        },
+      },
+      limiter,
+    });
+    const [before] = await rows(
+      caseStore.db,
+      sql`select body from settings where id=1`,
+    );
+    await rows(
+      caseStore.db,
+      sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
+    );
+    const draft = {
+      title: "Synthetic procurement concern",
+      summary:
+        "A synthetic procurement concern with sufficient detail for independent review.",
+      category: "fraud",
+      details: {},
+    };
+    let calls = 0;
+    vi.stubGlobal("fetch", async (url: string, opts: RequestInit) => {
+      if (String(url).includes("api.minimax.io")) {
+        calls++;
+        const request = JSON.parse(String(opts.body));
+        const content =
+          request.max_tokens === 2048
+            ? JSON.stringify({ draft, completeness: 80, missing: [] })
+            : "Synthetic assistant response";
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content } }] }),
+          { status: 200 },
+        );
+      }
+      return bridge(url, opts);
+    });
+    try {
+      const access = await verifiedAccess();
+      const headers = {
+        origin,
+        "x-csrf": "1",
+        "x-report-access": access.reportToken,
+      };
+      const started = await aiApp.inject({
+        url: "/privacy/intake",
+        method: "POST",
+        headers,
+        payload: { consent: true, locale: "en", policyVersion: 1 },
+      });
+      expect(started.statusCode).toBe(200);
+      const intake = started.json();
+      const aiHeaders = { ...headers, authorization: "Bearer " + intake.token };
+      const message = await aiApp.inject({
+        url: `/privacy/intake/${intake.id}/messages`,
+        method: "POST",
+        headers: aiHeaders,
+        payload: { body: draft.summary },
+      });
+      expect(message.statusCode).toBe(200);
+      const assessed = await aiApp.inject({
+        url: `/privacy/intake/${intake.id}/draft`,
+        method: "POST",
+        headers: aiHeaders,
+        payload: {},
+      });
+      expect(assessed.statusCode).toBe(200);
+      expect(assessed.json().draft.title).toBe(draft.title);
+      expect(calls).toBe(2);
+      const submitted = await app.inject({
+        url: "/api/reporter/reports",
+        method: "POST",
+        headers,
+        payload: {
+          ...assessed.json().draft,
+          submission: {
+            pin: token(),
+            recoveryCode: token(),
+            submissionToken: token(),
+          },
+          policyVersion: 1,
+          privacyReviewed: true,
+          intakeId: intake.id,
+          intakeToken: intake.token,
+        },
+      });
+      expect(submitted.statusCode).toBe(201);
+      const view = await call(
+        "/api/reporter/case",
+        undefined,
+        cookie(submitted),
+      );
+      expect(view.statusCode).toBe(200);
+      const [claimed] = await rows(
+        vault.db,
+        sql`select case_id from intakes where id=${intake.id}`,
+      );
+      expect(claimed!.case_id).toBe(view.json().id);
+      const [grant] = await rows(
+        vault.db,
+        sql`select employee_id from admission_grants where token_hash=${digest(access.reportToken)}`,
+      );
+      expect(grant!.employee_id).toBeNull();
+      expect(JSON.stringify(view.json())).not.toContain(access.email);
+    } finally {
+      vi.stubGlobal("fetch", bridge);
+      await aiApp.close();
+      await rows(
+        caseStore.db,
+        sql`update settings set body=${JSON.stringify(before!.body)}::jsonb where id=1`,
+      );
+    }
+  });
+  it("bounds AI work, resumes without resetting quotas, and denies concurrent or foreign grants", async () => {
+    counts.clear();
+    const bridge = globalThis.fetch,
+      config = {
+        ...privacy.privacyDeps.config,
+        ai: {
+          ...privacy.privacyDeps.config.ai,
+          apiKey: "synthetic-fixture-key",
+        },
+      };
+    const aiApp = await buildPrivacy({ db: vault.db, config, limiter });
+    const [before] = await rows(
+      caseStore.db,
+      sql`select body from settings where id=1`,
+    );
+    await rows(
+      caseStore.db,
+      sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
+    );
+    let calls = 0,
+      release: (() => void) | undefined,
+      waitForAi = false;
+    vi.stubGlobal("fetch", async (url: string, opts: RequestInit) => {
+      if (String(url).includes("api.minimax.io")) {
+        calls++;
+        if (waitForAi)
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "Synthetic assistant response" } }],
+          }),
+          { status: 200 },
+        );
+      }
+      return bridge(url, opts);
+    });
+    const aiCall = (
+      path: string,
+      body: unknown,
+      reportToken: string,
+      intakeToken?: string,
+    ) =>
+      aiApp.inject({
+        url: "/privacy/intake" + path,
+        method: "POST",
+        headers: {
+          origin,
+          "x-csrf": "1",
+          "x-report-access": reportToken,
+          ...(intakeToken ? { authorization: "Bearer " + intakeToken } : {}),
+        },
+        payload: body as InjectOptions["payload"],
+      });
+    try {
+      const access = await verifiedAccess(),
+        foreign = await verifiedAccess();
+      const started = await aiCall(
+        "",
+        { consent: true, locale: "en", policyVersion: 1 },
+        access.reportToken,
+      );
+      expect(started.statusCode).toBe(200);
+      const i = started.json();
+      expect(
+        (
+          await aiCall(
+            "",
+            { consent: true, locale: "en", policyVersion: 1 },
+            access.reportToken,
+          )
+        ).statusCode,
+      ).toBe(409);
+      expect(
+        (
+          await aiCall(
+            `/${i.id}/messages`,
+            { body: "test" },
+            foreign.reportToken,
+            i.token,
+          )
+        ).statusCode,
+      ).toBe(401);
+      expect(calls).toBe(0);
+      waitForAi = true;
+      const running = aiCall(
+        `/${i.id}/messages`,
+        { body: "First question" },
+        access.reportToken,
+        i.token,
+      );
+      await vi.waitFor(() => expect(release).toBeDefined());
+      expect(
+        (await aiCall(`/${i.id}/draft`, {}, access.reportToken, i.token))
+          .statusCode,
+      ).toBe(409);
+      expect(calls).toBe(1);
+      waitForAi = false;
+      release!();
+      expect((await running).statusCode).toBe(200);
+      expect(
+        (await aiCall(`/${i.id}/draft`, {}, access.reportToken, i.token))
+          .statusCode,
+      ).toBe(500);
+      const [charged] = await rows(
+        vault.db,
+        sql`select messages,drafts from admission_grants where token_hash=${digest(access.reportToken)}`,
+      );
+      expect(charged).toMatchObject({ messages: 1, drafts: 1 });
+      await rows(
+        vault.db,
+        sql`update admission_grants set messages=30,drafts=3,expires_at=now()-interval '1 second' where token_hash=${digest(access.reportToken)}`,
+      );
+      expect(
+        (
+          await aiCall(
+            `/${i.id}/messages`,
+            { body: "Expired question" },
+            access.reportToken,
+            i.token,
+          )
+        ).statusCode,
+      ).toBe(401);
+      // A fresh proof of the same destination extends the existing grant, without new conversation or counters.
+      const cid = randomUUID();
+      await rows(
+        vault.db,
+        sql`insert into admission_challenges(id,email_hash,email_enc,purpose,code_hash,locale,expires_at) values(${cid},${mac(shared, "employee:" + access.email)},${seal(access.email, vaultRing, "admission-challenge:" + cid)},'report',${mac(shared, cid + ":123456")},'en',now()+interval '5 minutes')`,
+      );
+      const resumed = await admission("verify", {
+        challengeId: cid,
+        code: "123456",
+        resumeToken: access.reportToken,
+      });
+      expect(resumed.json().reportToken).toBe(access.reportToken);
+      for (const kind of ["messages", "draft"])
+        expect(
+          (
+            await aiCall(
+              `/${i.id}/${kind}`,
+              { body: "Beyond quota" },
+              access.reportToken,
+              i.token,
+            )
+          ).statusCode,
+        ).toBe(429);
+      expect(calls).toBe(3);
+      const [g] = await rows(
+        vault.db,
+        sql`select messages,drafts from admission_grants where token_hash=${digest(access.reportToken)}`,
+      );
+      expect(g).toMatchObject({ messages: 30, drafts: 3 });
+    } finally {
+      release?.();
+      await aiApp.close();
+      vi.stubGlobal("fetch", bridge);
+      await rows(
+        caseStore.db,
+        sql`update settings set body=${JSON.stringify(before!.body)}::jsonb where id=1`,
+      );
+    }
+  });
+  it("normalizes directory emails, revokes edited addresses, and never approves over a disabled employee", async () => {
+    counts.clear();
+    const access = await verifiedAccess(),
+      normalized = access.email.toUpperCase();
+    expect(
+      (
+        await call(
+          "/api/admin/employees",
+          {
+            name: "Duplicate",
+            email: " " + normalized + " ",
+            phone: "+628123456789",
+          },
+          cookies.admin,
+        )
+      ).statusCode,
+    ).toBe(409);
+    const updatedEmail = `updated-${randomUUID()}@example.test`;
+    expect(
+      (
+        await call(
+          `/api/admin/employees/${access.id}`,
+          {
+            name: "Updated employee",
+            email: updatedEmail,
+            phone: "+628123456789",
+            active: false,
+          },
+          cookies.admin,
+          "PUT",
+        )
+      ).statusCode,
+    ).toBe(200);
+    const [g] = await rows(
+      vault.db,
+      sql`select employee_id,revoked_at from admission_grants where token_hash=${digest(access.reportToken)}`,
+    );
+    expect(g!.employee_id).toBeNull();
+    expect(g!.revoked_at).not.toBeNull();
+    expect(
+      (await admission("challenge", { email: access.email })).json().status,
+    ).toBe("unregistered");
+    expect(
+      (await admission("challenge", { email: updatedEmail })).json().status,
+    ).toBe("disabled");
+    const requestId = randomUUID(),
+      employee = {
+        name: "Applicant",
+        email: updatedEmail,
+        phone: "+628123456789",
+      };
+    await rows(
+      vault.db,
+      sql`insert into employee_requests(id,email_hash,body_enc,locale) values(${requestId},${mac(shared, "employee:" + updatedEmail)},${seal(employee, vaultRing, "employee-request:" + requestId)},'id')`,
+    );
+    const resolve = (decision: string) =>
+      call(
+        `/api/admin/employee-requests/${requestId}/resolve`,
+        { decision },
+        cookies.admin,
+      );
+    expect((await resolve("approved")).statusCode).toBe(409);
+    expect((await resolve("rejected")).statusCode).toBe(200);
+    expect((await resolve("rejected")).statusCode).toBe(409);
+    const [e] = await rows(
+      vault.db,
+      sql`select active from employees where id=${access.id}`,
+    );
+    expect(e!.active).toBe(false);
+    const jobs = await rows(
+      vault.db,
+      sql`select id,body_enc from delivery_jobs where kind='admission_decision'`,
+    );
+    const body = jobs
+      .map((j) =>
+        unseal<Record<string, unknown>>(
+          String(j.body_enc),
+          vaultRing,
+          "job:" + j.id,
+        ),
+      )
+      .find((b) => b.destination === updatedEmail);
+    expect(body).toMatchObject({ decision: "rejected", locale: "id" });
+    const auditJobs = await rows(
+      vault.db,
+      sql`select id,body_enc from delivery_jobs where kind='directory_audit'`,
+    );
+    for (const job of auditJobs) {
+      const event = unseal<Record<string, unknown>>(
+        String(job.body_enc),
+        vaultRing,
+        "job:" + job.id,
+      );
+      expect(event).not.toHaveProperty("caseId");
+      expect(JSON.stringify(event)).not.toContain(updatedEmail);
+    }
+  });
+  it("retries a reserved report after a failed case commit and refuses a second concurrent submission", async () => {
+    counts.clear();
+    const access = await verifiedAccess(),
+      submission = {
+        pin: token(),
+        recoveryCode: token(),
+        submissionToken: token(),
+      },
+      hash = digest(submission.submissionToken),
+      hex = hash.slice(0, 32),
+      id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20)}`;
+    // Simulate the cross-service boundary: the privacy reservation commits while the case transaction fails.
+    const path = "admission/reserve",
+      stamp = Date.now().toString(),
+      body = {
+        reportToken: access.reportToken,
+        submissionHash: hash,
+        caseId: id,
+      };
+    expect(
+      (
+        await privacy.inject({
+          url: "/internal/" + path,
+          method: "POST",
+          payload: body,
+          headers: {
+            "x-service-time": stamp,
+            "x-service-signature": mac(
+              shared,
+              stamp + ":" + path + ":" + JSON.stringify(body),
+            ),
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const send = (credentials: typeof submission) =>
+      app.inject({
+        url: "/api/reporter/reports",
+        method: "POST",
+        headers: {
+          origin,
+          "x-csrf": "1",
+          "x-report-access": access.reportToken,
+        },
+        payload: {
+          submission: credentials,
+          title: "Interrupted submission test",
+          summary:
+            "A privacy reservation can survive an interrupted transaction in the case database.",
+          category: "fraud",
+          privacyReviewed: true,
+          policyVersion: 1,
+        },
+      });
+    const results = await Promise.all([
+      send(submission),
+      send({ pin: token(), recoveryCode: token(), submissionToken: token() }),
+    ]);
+    expect(results.map((r) => r.statusCode)).toEqual([201, 401]);
+    expect((await send(submission)).statusCode).toBe(201);
+    expect(
+      await rows(
+        caseStore.db,
+        sql`select id from cases where submission_hash=${hash}`,
+      ),
+    ).toHaveLength(1);
   });
   it("chains concurrent audit events and makes history immutable", async () => {
     await Promise.all(

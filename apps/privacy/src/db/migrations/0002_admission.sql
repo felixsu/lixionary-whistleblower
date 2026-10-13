@@ -1,0 +1,7 @@
+CREATE TABLE employees(id uuid PRIMARY KEY, email_hash text UNIQUE NOT NULL, body_enc text NOT NULL, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE employee_requests(id uuid PRIMARY KEY, email_hash text NOT NULL, body_enc text NOT NULL, locale text NOT NULL CHECK(locale IN ('en','id')), state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','approved','rejected')), created_at timestamptz NOT NULL DEFAULT now(), resolved_at timestamptz);
+CREATE UNIQUE INDEX employee_requests_pending ON employee_requests(email_hash) WHERE state='pending';
+CREATE TABLE admission_challenges(id uuid PRIMARY KEY, email_hash text NOT NULL, email_enc text NOT NULL, purpose text NOT NULL CHECK(purpose IN ('report','request')), code_hash text NOT NULL, attempts integer NOT NULL DEFAULT 0, locale text NOT NULL, expires_at timestamptz NOT NULL, used_at timestamptz, proof_hash text UNIQUE, proof_expires_at timestamptz, submitted_at timestamptz);
+CREATE INDEX admission_challenge_destination ON admission_challenges(email_hash);
+CREATE TABLE admission_grants(id uuid PRIMARY KEY, token_hash text UNIQUE NOT NULL, employee_id uuid REFERENCES employees, expires_at timestamptz NOT NULL, revoked_at timestamptz, intake_started boolean NOT NULL DEFAULT false, messages integer NOT NULL DEFAULT 0, drafts integer NOT NULL DEFAULT 0, submission_hash text UNIQUE, case_id uuid UNIQUE, reserved_at timestamptz);
+ALTER TABLE intakes ADD COLUMN admission_id uuid UNIQUE REFERENCES admission_grants ON DELETE SET NULL;

@@ -21,7 +21,7 @@ import { ErrorBox, StatusBadge, friendly, useLanguage } from "./common";
 import {
   safeStaffReturn,
   staffHome,
-  staffNavigation,
+  staffNavigationGroups,
 } from "./staff-navigation";
 type Drafts = Record<string, unknown>;
 type StaffContextValue = {
@@ -231,23 +231,37 @@ export function StaffWorkspace({ children }: { children: ReactNode }) {
           {user && <StatusBadge state={user.role}>{t(user.role)}</StatusBadge>}
         </div>
         <nav aria-label={t("navigation")}>
-          {staffNavigation
-            .filter((n) => user && n.roles.includes(user.role))
-            .map(({ href, key, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                aria-current={
-                  pathname === href || pathname.startsWith(href + "/")
-                    ? "page"
-                    : undefined
-                }
+          {staffNavigationGroups.map((group) => {
+            const items = group.items.filter(
+              (n) => user && n.roles.includes(user.role),
+            );
+            if (!items.length) return null;
+            return (
+              <div
+                className="staff-nav-group"
+                role="group"
+                aria-label={t(group.key)}
+                key={group.key}
               >
-                <Icon size={18} aria-hidden="true" />
-                {t(key)}
-              </Link>
-            ))}
+                <p className="staff-nav-heading">{t(group.key)}</p>
+                {items.map(({ href, key, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => setOpen(false)}
+                    aria-current={
+                      pathname === href || pathname.startsWith(href + "/")
+                        ? "page"
+                        : undefined
+                    }
+                  >
+                    <Icon size={18} aria-hidden="true" />
+                    {t(key)}
+                  </Link>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <button
           className="secondary staff-signout"

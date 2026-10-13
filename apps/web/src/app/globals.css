@@ -802,6 +802,57 @@ textarea {
   padding: 12px;
   font-size: 13px;
 }
+.staff-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.staff-nav-group + .staff-nav-group {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.staff-nav-heading {
+  margin: 0 12px 4px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.user-page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.user-page-heading h1 {
+  margin: 0;
+}
+.user-breadcrumbs {
+  margin-bottom: 20px;
+}
+.user-breadcrumbs ol {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+.user-breadcrumbs li + li::before {
+  content: "›";
+  margin-right: 8px;
+  color: var(--muted);
+}
+.user-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
 .staff-workspace nav svg {
   flex-shrink: 0;
 }
@@ -905,4 +956,31 @@ textarea {
     max-width: 136px;
     font-size: 12px;
   }
+}
+
+.report-gate {
+  inset: 0;
+  margin: auto;
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.report-gate::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.report-gate-panel {
+  padding: 1.5rem;
+}
+.report-gate-panel > button {
+  margin: 0.5rem 0.5rem 0 0;
+}
+.employee-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
 }

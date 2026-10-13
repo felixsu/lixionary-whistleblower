@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { settingsSchema, staffRoles } from "@whistle/shared";
+import {
+  settingsSchema,
+  staffRoles,
+  employeeSchema,
+  employeeUpdateSchema,
+  employeeQuerySchema,
+} from "@whistle/shared";
 import { hashSecret, token } from "@whistle/runtime";
 import { requireStaff } from "../auth.js";
 import { rows } from "../db/client.js";
@@ -16,8 +22,12 @@ import {
   privacyCall,
 } from "../service.js";
 import { HttpError } from "../lib/errors.js";
+import {
+  limitPasswordReset,
+  queuePasswordReset,
+} from "../staff-password-reset.js";
 export async function adminRoutes(app: FastifyInstance) {
-  const { db, config } = app.deps;
+  const { db, config, limiter } = app.deps;
   app.addHook("preHandler", requireStaff);
   app.get("/analytics", async (req) => {
     const predicate =
@@ -39,6 +49,56 @@ export async function adminRoutes(app: FastifyInstance) {
   });
   app.register(async (a) => {
     a.addHook("preHandler", async (req) => admin(req.staff!));
+    a.get("/employees", async (req) =>
+      (
+        await privacyCall(
+          req,
+          "employees/list",
+          employeeQuerySchema.parse(req.query),
+        )
+      ).json(),
+    );
+    a.post("/employees", async (req) =>
+      (
+        await privacyCall(req, "employees/save", {
+          ...employeeSchema.parse(req.body),
+          active: true,
+          actor: req.staff!.id,
+        })
+      ).json(),
+    );
+    a.put("/employees/:id", async (req) =>
+      (
+        await privacyCall(req, "employees/save", {
+          ...employeeUpdateSchema.parse(req.body),
+          id: z.object({ id: z.uuid() }).parse(req.params).id,
+          actor: req.staff!.id,
+        })
+      ).json(),
+    );
+    a.get("/employee-requests", async (req) =>
+      (
+        await privacyCall(
+          req,
+          "employee-requests/list",
+          employeeQuerySchema.parse(req.query),
+        )
+      ).json(),
+    );
+    a.post("/employee-requests/:id/resolve", async (req) =>
+      (
+        await privacyCall(req, "employee-requests/resolve", {
+          ...z
+            .object({
+              decision: z.enum(["approved", "rejected"]),
+              employee: employeeSchema.optional(),
+            })
+            .parse(req.body),
+          id: z.object({ id: z.uuid() }).parse(req.params).id,
+          actor: req.staff!.id,
+        })
+      ).json(),
+    );
     a.get("/settings", async () => settings(db));
     a.put("/settings", async (req) => {
       const v = settingsSchema.parse(req.body);
@@ -107,10 +167,36 @@ export async function adminRoutes(app: FastifyInstance) {
         sql`select id,email,name,role,active,mfa_enc is not null mfa_enrolled,created_at from staff order by name`,
       ),
     }));
+    a.get("/staff/:id", async (req) => {
+      const { id } = z.object({ id: z.uuid() }).parse(req.params);
+      const [staff] = await rows(
+        db,
+        sql`select id,email,name,role,active,mfa_enc is not null mfa_enrolled,created_at from staff where id=${id}`,
+      );
+      if (!staff) throw new HttpError(404, "Not found", "not_found");
+      return { staff };
+    });
+    a.post("/staff/:id/password-reset", async (req) => {
+      const { id } = z.object({ id: z.uuid() }).parse(req.params);
+      const [staff] = await rows(
+        db,
+        sql`select email,active from staff where id=${id}`,
+      );
+      if (!staff) throw new HttpError(404, "Not found", "not_found");
+      if (!staff.active)
+        throw new HttpError(409, "Inactive account", "staff_inactive");
+      await limitPasswordReset(limiter, String(staff.email));
+      const queued = await db.transaction((tx) =>
+        queuePasswordReset(tx, config, id, req.staff!.id),
+      );
+      if (!queued)
+        throw new HttpError(409, "Inactive account", "staff_inactive");
+      return { ok: true };
+    });
     a.post("/staff", async (req) => {
       const v = z
         .object({
-          email: z.email(),
+          email: z.string().trim().toLowerCase().pipe(z.email().max(254)),
           name: z.string().trim().min(1).max(100),
           role: z.enum(staffRoles),
         })
@@ -120,8 +206,10 @@ export async function adminRoutes(app: FastifyInstance) {
       await db.transaction(async (tx) => {
         const [s] = await rows(
           tx,
-          sql`insert into staff(email,name,role,password_hash,active) values(${v.email.toLowerCase()},${v.name},${v.role},${randomPassword},false) returning id`,
+          sql`insert into staff(email,name,role,password_hash,active) values(${v.email},${v.name},${v.role},${randomPassword},false) on conflict(email) do nothing returning id`,
         );
+        if (!s)
+          throw new HttpError(409, "Email already exists", "staff_exists");
         await rows(
           tx,
           sql`insert into staff_tokens(staff_id,token_hash,purpose,expires_at) values(${s!.id},${digest(raw)},'invitation',now()+interval '24 hours')`,
@@ -176,10 +264,14 @@ export async function adminRoutes(app: FastifyInstance) {
           sql`update staff set name=${v.name},role=${v.role},active=${v.active} where id=${p.id}`,
         );
         await rows(tx, sql`delete from staff_sessions where staff_id=${p.id}`);
-        await rows(tx, sql`delete from staff_tokens where staff_id=${p.id}`);
+        const preserveInvitation = !target.active && !v.active;
         await rows(
           tx,
-          sql`delete from jobs where staff_id=${p.id} and kind='staff_token'`,
+          sql`delete from staff_tokens where staff_id=${p.id} ${preserveInvitation ? sql`and purpose<>'invitation'` : sql``}`,
+        );
+        await rows(
+          tx,
+          sql`delete from jobs where staff_id=${p.id} and kind='staff_token' ${preserveInvitation ? sql`and body->>'purpose' is distinct from 'invitation'` : sql``}`,
         );
         if (v.role === "admin" || !v.active) {
           await rows(tx, sql`delete from team_members where staff_id=${p.id}`);

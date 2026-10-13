@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import assert from "node:assert/strict";
 import { setTimeout as pause } from "node:timers/promises";
 import { createRequire } from "node:module";
@@ -8,13 +9,15 @@ const sharp = require("sharp");
 const { PDFDocument, StandardFonts } = require("pdf-lib");
 const base = "http://localhost:9551",
   origin = base;
-let cookie = "";
+let cookie = "",
+  reportToken = "";
 async function api(path, body, method = body === undefined ? "GET" : "POST") {
   const r = await fetch(base + path, {
     method,
     headers: {
       origin,
       "x-csrf": "1",
+      "x-report-access": reportToken,
       cookie,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
     },
@@ -49,8 +52,51 @@ async function privateRequest(
           : JSON.stringify(body),
   });
 }
+const email = "e2e-reporter-evidence@example.test";
+const previousMail = await (
+  await fetch("http://localhost:6403/api/v1/messages")
+).json();
+const previousMailIds = new Set(previousMail.messages?.map((m) => m.ID));
+const challenge = await api("/privacy/admission/challenge", { email });
+assert.equal(
+  challenge.status,
+  "otp",
+  "Seed synthetic employees before running this development check",
+);
+let otp = "";
+for (let n = 0; n < 30; n++) {
+  const box = await (
+    await fetch("http://localhost:6403/api/v1/messages")
+  ).json();
+  const match = box.messages?.find(
+    (m) =>
+      !previousMailIds.has(m.ID) && m.To.some((to) => to.Address === email),
+  );
+  if (match) {
+    const message = await (
+      await fetch("http://localhost:6403/api/v1/message/" + match.ID)
+    ).json();
+    otp =
+      message.Text?.match(/(?:code is|verifikasi Anda adalah) (\d{6})/)?.[1] ??
+      "";
+    if (otp) break;
+  }
+  await pause(1000);
+}
+assert.ok(otp, "Synthetic OTP delivery timed out");
+reportToken = (
+  await api("/privacy/admission/verify", {
+    challengeId: challenge.challengeId,
+    code: otp,
+  })
+).reportToken;
 const company = await api("/api/reporter/company");
 await api("/api/reporter/reports", {
+  submission: {
+    pin: randomBytes(32).toString("base64url"),
+    recoveryCode: randomBytes(32).toString("base64url"),
+    submissionToken: randomBytes(32).toString("base64url"),
+  },
   title: "Evidence pipeline test case",
   summary:
     "Synthetic evidence is submitted to verify quarantine, sanitization, redaction and custody.",

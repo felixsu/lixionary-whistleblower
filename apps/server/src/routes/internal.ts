@@ -22,6 +22,30 @@ export async function internalRoutes(app: FastifyInstance) {
     )
       throw new HttpError(401, "Unauthorized", "unauthorized");
   });
+  app.post("/directory-audit", async (req) => {
+    const v = z
+      .object({
+        id: z.uuid(),
+        actor: z.uuid(),
+        action: z.enum([
+          "employee_added",
+          "employee_updated",
+          "employee_request_approved",
+          "employee_request_rejected",
+        ]),
+        recordId: z.uuid(),
+      })
+      .parse(req.body);
+    await db.transaction(async (tx) => {
+      const [event] = await rows(
+        tx,
+        sql`insert into event_receipts(id) values(${v.id}) on conflict do nothing returning id`,
+      );
+      if (event)
+        await audit(tx, v.actor, v.action, null, { recordId: v.recordId });
+    });
+    return { ok: true };
+  });
   app.post("/introspect", async (req) => {
     const v = z
       .object({ caseId: z.uuid(), sid: z.uuid(), version: z.number().int() })

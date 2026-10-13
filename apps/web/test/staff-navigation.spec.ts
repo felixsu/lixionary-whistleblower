@@ -322,7 +322,7 @@ for (const role of ["admin", "manager", "analyst"] as const) {
     await expect(
       nav.getByRole("link", { name: mobile ? "Kasus" : "Cases", exact: true }),
     ).toHaveCount(role === "admin" ? 0 : 1);
-    await expect(nav.locator("a[href='/staff/admin/staff']")).toHaveCount(
+    await expect(nav.locator("a[href='/staff/admin/users']")).toHaveCount(
       role === "admin" ? 1 : 0,
     );
     if (mobile) {
@@ -345,7 +345,7 @@ for (const role of ["admin", "manager", "analyst"] as const) {
     await expect(
       page.getByRole("button", { name: mobile ? "Cabut" : "Revoke" }),
     ).toBeVisible();
-    await page.goto(role === "admin" ? base : "/staff/admin/staff");
+    await page.goto(role === "admin" ? base : "/staff/admin/users");
     await expect(
       page.getByRole("heading", {
         name: mobile
@@ -415,7 +415,7 @@ test("case routes keep drafts, filter history, mutations and unavailable states"
   await page
     .getByRole("button", { name: mobile ? "Kirim" : "Send", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
   await expect(body).toHaveValue("Unfinished private reply");
   state.rejectMessage = false;
   await page
@@ -549,7 +549,7 @@ test("admin pages load independently, keep settings drafts and export all audit 
   await page
     .getByRole("button", { name: mobile ? "Simpan" : "Save", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
   await expect(company).toHaveValue("Draft company");
   await expect(
     page.locator('[data-settings-group="retention"]'),
@@ -577,22 +577,33 @@ test("admin pages load independently, keep settings drafts and export all audit 
     })
     .click();
   await expect(page.getByText(/v2 ·/)).toBeVisible();
-  await menuLink(page, mobile ? "Staf" : "Staff", mobile);
+  await menuLink(page, mobile ? "Pengguna" : "Users", mobile);
+  const create = page.getByRole("main").getByRole("link", {
+    name: mobile ? "Buat pengguna" : "Create user",
+    exact: true,
+  });
+  await create.click();
   const email = page.getByLabel("Email", { exact: true });
   await email.fill("new@example.test");
   await page
     .getByLabel(mobile ? "Nama" : "Name", { exact: true })
     .fill("New synthetic staff");
   await menuLink(page, mobile ? "Akun" : "Account", mobile);
-  await menuLink(page, mobile ? "Staf" : "Staff", mobile);
+  await menuLink(page, mobile ? "Pengguna" : "Users", mobile);
+  await create.click();
   await expect(email).toHaveValue("new@example.test");
   await page
     .getByRole("button", {
-      name: mobile ? "Undang staf" : "Invite staff",
+      name: mobile ? "Buat pengguna" : "Create user",
       exact: true,
     })
     .click();
+  await expect(page).toHaveURL(/\/staff\/admin\/users\?notice=invited$/);
+  await create.click();
   await expect(email).toHaveValue("");
+  await page
+    .getByRole("button", { name: mobile ? "Batal" : "Cancel", exact: true })
+    .click();
   await menuLink(
     page,
     mobile ? "Pengiriman dan retensi" : "Delivery and retention",
@@ -691,7 +702,7 @@ test("failed settings load never offers a placeholder save", async ({
     state = await fixture(page, "admin", mobile);
   state.settingsUnavailable = true;
   await page.goto("/staff/admin/settings");
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
   await expect(
     page.getByRole("button", { name: mobile ? "Simpan" : "Save", exact: true }),
   ).toHaveCount(0);

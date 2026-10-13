@@ -1,3 +1,5 @@
+import { admissionRoutes } from "./admission.js";
+import { intakeRoutes } from "./intake.js";
 import { randomUUID, randomInt, createHash } from "node:crypto";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
@@ -9,17 +11,12 @@ import {
   equal,
   seal,
   unseal,
-  token,
   safeError,
   emailConfigured,
   createMinimaxClient,
-  INTERVIEWER_PROMPT,
-  GREETING,
-  READY_MARKER,
-  assessConversation,
   type Capability,
 } from "@whistle/runtime";
-import type { ChatMessage, CompanySettings } from "@whistle/shared";
+import type { CompanySettings } from "@whistle/shared";
 import type { Config } from "./config.js";
 import { rows, type Db } from "./db/client.js";
 import {
@@ -480,107 +477,8 @@ export async function buildApp(deps: Dependencies) {
     },
     { prefix: "/privacy/reporter" },
   );
-  app.register(
-    async (intake) => {
-      intake.addHook("preHandler", async (req) => csrf(req));
-      intake.post("/", async (req) => {
-        const v = z
-          .object({
-            consent: z.literal(true),
-            policyVersion: z.number().int().positive(),
-            locale: z.enum(["en", "id"]),
-          })
-          .parse(req.body);
-        const s = (await (
-          await caseCall(config, "configuration", {})
-        ).json()) as { settings: CompanySettings; policyVersion: number };
-        if (!s.settings.aiEnabled || !ai.enabled)
-          throw new PrivacyError(409, "ai_disabled");
-        if (s.policyVersion !== v.policyVersion)
-          throw new PrivacyError(409, "policy_changed");
-        const id = randomUUID(),
-          raw = token();
-        await rows(
-          db,
-          sql`insert into intakes(id,token_hash,locale,consent_version,transcript_enc) values(${id},${digest(raw)},${v.locale},${v.policyVersion},${seal([{ role: "assistant", content: v.locale === "id" ? "Ceritakan apa yang terjadi. Jangan sertakan identitas atau kontak Anda." : GREETING }], config.keys, `intake:${id}`)})`,
-        );
-        return { id, token: raw };
-      });
-      async function get(req: {
-        params: unknown;
-        headers: Record<string, unknown>;
-      }) {
-        const { id } = z.object({ id: z.uuid() }).parse(req.params);
-        const [s] = await rows(
-          db,
-          sql`select * from intakes where id=${id} and token_hash=${digest(String(req.headers.authorization ?? "").replace(/^Bearer /, ""))} and revoked_at is null and case_id is null and created_at>now()-interval '24 hours'`,
-        );
-        if (!s) throw new PrivacyError(401, "unauthorized");
-        return s;
-      }
-      intake.post("/:id/messages", async (req) => {
-        const s = await get(req),
-          v = z
-            .object({ body: z.string().trim().min(1).max(5000) })
-            .parse(req.body);
-        const current = (await (
-          await caseCall(config, "configuration", {})
-        ).json()) as { settings: CompanySettings; policyVersion: number };
-        if (!current.settings.aiEnabled)
-          throw new PrivacyError(409, "ai_disabled");
-        if (current.policyVersion !== Number(s.consent_version))
-          throw new PrivacyError(409, "policy_changed");
-        if (!(await limiter.hit(mac(config.abuseKey, `ai:${s.id}`), 30, 3600)))
-          throw new PrivacyError(429, "rate_limit");
-        const messages = unseal<ChatMessage[]>(
-          String(s.transcript_enc),
-          config.keys,
-          `intake:${s.id}`,
-        );
-        if (messages.length > 60)
-          throw new PrivacyError(429, "conversation_limit");
-        messages.push({ role: "user", content: v.body });
-        const answer = (
-          await ai.complete(
-            [{ role: "system", content: INTERVIEWER_PROMPT }, ...messages],
-            { maxTokens: 800 },
-          )
-        )
-          .replaceAll(READY_MARKER, "")
-          .trim();
-        messages.push({ role: "assistant", content: answer });
-        await rows(
-          db,
-          sql`update intakes set transcript_enc=${seal(messages, config.keys, `intake:${s.id}`)} where id=${s.id} and revoked_at is null`,
-        );
-        return { answer };
-      });
-      intake.post("/:id/draft", async (req) => {
-        const current = (await (
-          await caseCall(config, "configuration", {})
-        ).json()) as { settings: CompanySettings; policyVersion: number };
-        if (!current.settings.aiEnabled || !ai.enabled)
-          throw new PrivacyError(409, "ai_disabled");
-        const s = await get(req);
-        if (current.policyVersion !== Number(s.consent_version))
-          throw new PrivacyError(409, "policy_changed");
-        return assessConversation(
-          ai,
-          unseal<ChatMessage[]>(
-            String(s.transcript_enc),
-            config.keys,
-            `intake:${s.id}`,
-          ),
-        );
-      });
-      intake.delete("/:id", async (req) => {
-        const s = await get(req);
-        await rows(db, sql`delete from intakes where id=${s.id}`);
-        return { ok: true };
-      });
-    },
-    { prefix: "/privacy/intake" },
-  );
+  await admissionRoutes(app);
+  app.register(intakeRoutes, { prefix: "/privacy/intake" });
   app.register(
     async (internal) => {
       internal.addHook("preHandler", internalAuth);
@@ -680,6 +578,7 @@ export async function buildApp(deps: Dependencies) {
       );
       for (const f of files) await removeFiles(config, String(f.id));
       for (const table of [
+        "admission_grants",
         "contacts",
         "files",
         "intakes",

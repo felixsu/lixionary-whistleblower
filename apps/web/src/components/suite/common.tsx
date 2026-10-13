@@ -9,7 +9,7 @@ export const strings = {
   skip: ["Skip to content", "Langsung ke konten"],
   navigation: ["Main navigation", "Navigasi utama"],
   confidential: ["Confidential reporting", "Pelaporan rahasia"],
-  noAccount: ["No account needed", "Tidak perlu akun"],
+  noAccount: ["For registered employees", "Untuk karyawan terdaftar"],
   reportIntro: [
     "Share a concern at your own pace. Review your report and evidence before sharing them with the review team.",
     "Sampaikan kekhawatiran Anda sesuai kenyamanan Anda. Tinjau laporan dan bukti sebelum membagikannya kepada tim peninjau.",
@@ -39,8 +39,8 @@ export const strings = {
   portal: ["Open my case", "Buka laporan saya"],
   staff: ["Staff portal", "Portal staf"],
   privacy: [
-    "Contact information is optional and hidden from all staff. Details you share in your report may still identify you.",
-    "Informasi kontak bersifat opsional dan disembunyikan dari semua staf. Isi laporan dapat mengungkapkan identitas Anda.",
+    "Employee email verification is required. Your employee identity is not attached to the report. Optional case contacts are hidden from staff; report details may still identify you.",
+    "Verifikasi email karyawan wajib dilakukan. Identitas karyawan tidak disertakan dalam laporan. Kontak laporan opsional disembunyikan dari staf; isi laporan dapat mengungkapkan identitas Anda.",
   ],
   submit: ["Submit report", "Kirim laporan"],
   save: ["Save", "Simpan"],
@@ -225,7 +225,58 @@ export const strings = {
   normal: ["Normal", "Normal"],
   menu: ["Menu", "Menu"],
   closeMenu: ["Close menu", "Tutup menu"],
+  workspace: ["Workspace", "Ruang kerja"],
+  administration: ["Administration", "Administrasi"],
+  users: ["Users", "Pengguna"],
+  edit: ["Edit", "Edit"],
+  yes: ["Yes", "Ya"],
+  no: ["No", "Tidak"],
+  passwordResetHeading: ["Password reset", "Pengaturan ulang kata sandi"],
+  createUser: ["Create user", "Buat pengguna"],
+  editUser: ["Edit user", "Edit pengguna"],
+  userActions: ["Actions", "Tindakan"],
+  breadcrumbs: ["Breadcrumbs", "Jejak navigasi"],
+  backToUsers: ["Back to users", "Kembali ke pengguna"],
+  saveChanges: ["Save changes", "Simpan perubahan"],
+  noUsers: ["No users yet.", "Belum ada pengguna."],
+  usersIntro: [
+    "Staff accounts for the review and administration workspace. Reporter eligibility is managed separately under Employees.",
+    "Akun staf untuk ruang kerja peninjauan dan administrasi. Kelayakan pelapor dikelola secara terpisah di Karyawan.",
+  ],
+  userInvitationIntro: [
+    "An invitation email will let this user choose a password and enroll an authenticator before accessing the workspace.",
+    "Email undangan memungkinkan pengguna memilih kata sandi dan mendaftarkan autentikator sebelum mengakses ruang kerja.",
+  ],
+  userInvited: [
+    "User created. An invitation email was queued.",
+    "Pengguna dibuat. Email undangan telah masuk antrean.",
+  ],
+  userEmailReadOnly: [
+    "The account email cannot be changed here.",
+    "Email akun tidak dapat diubah di sini.",
+  ],
+  userUnavailable: [
+    "This user no longer exists.",
+    "Pengguna ini sudah tidak tersedia.",
+  ],
+  sendPasswordReset: [
+    "Send password reset email",
+    "Kirim email pengaturan ulang kata sandi",
+  ],
+  userResetIntro: [
+    "Send a single-use link to this user's account email. The link expires in 30 minutes. Authenticator MFA stays enabled, and existing sessions end after the password is changed.",
+    "Kirim tautan sekali pakai ke email akun pengguna ini. Tautan berlaku 30 menit. MFA autentikator tetap aktif, dan sesi yang ada berakhir setelah kata sandi diubah.",
+  ],
+  userResetInactive: [
+    "Password reset is available only for active accounts.",
+    "Pengaturan ulang kata sandi hanya tersedia untuk akun aktif.",
+  ],
+  userResetQueued: [
+    "Password reset email queued.",
+    "Email pengaturan ulang kata sandi masuk antrean.",
+  ],
   staffMembers: ["Staff", "Staf"],
+  employees: ["Employees", "Karyawan"],
   statistics: ["Statistics", "Statistik"],
   account: ["Account", "Akun"],
   overview: ["Overview", "Ringkasan"],
@@ -435,6 +486,46 @@ export function ErrorBox({ error }: { error: string }) {
   ) : null;
 }
 const errors: Record<string, [string, string]> = {
+  staff_exists: [
+    "A user with this email already exists.",
+    "Pengguna dengan email ini sudah ada.",
+  ],
+  staff_inactive: [
+    "Password reset is available only for active accounts.",
+    "Pengaturan ulang kata sandi hanya tersedia untuk akun aktif.",
+  ],
+  report_access_required: [
+    "Verify your employee email to continue. Your draft is kept on this page.",
+    "Verifikasi email karyawan Anda untuk melanjutkan. Draf tetap tersimpan di halaman ini.",
+  ],
+  report_busy: [
+    "Another report operation is in progress. Please wait.",
+    "Operasi laporan lain sedang berjalan. Silakan tunggu.",
+  ],
+  duplicate_email: [
+    "This email is already registered. Edit the existing employee instead.",
+    "Email ini sudah terdaftar. Ubah karyawan yang ada.",
+  ],
+  employee_exists: [
+    "This email is already registered. Return to email verification.",
+    "Email ini sudah terdaftar. Kembali ke verifikasi email.",
+  ],
+  request_resolved: [
+    "This request has already been resolved. Refresh the list.",
+    "Permintaan sudah diputuskan. Muat ulang daftar.",
+  ],
+  request_verification_required: [
+    "Verify the request email again.",
+    "Verifikasi email permintaan kembali.",
+  ],
+  intake_already_started: [
+    "This verification already started an AI conversation. Continue with your report form.",
+    "Verifikasi ini sudah memulai percakapan AI. Lanjutkan dengan formulir laporan.",
+  ],
+  conversation_limit: [
+    "The AI usage limit for this report has been reached. Continue with the report form.",
+    "Batas penggunaan AI untuk laporan ini tercapai. Lanjutkan dengan formulir laporan.",
+  ],
   policy_changed: [
     "The company policy changed. Review it again before continuing; your report text is kept on this page.",
     "Kebijakan perusahaan berubah. Tinjau kembali sebelum melanjutkan; teks laporan Anda tetap ada di halaman ini.",
@@ -456,8 +547,8 @@ const errors: Record<string, [string, string]> = {
     "Verifikasi telepon belum tersedia. Anda dapat menggunakan email atau tetap anonim.",
   ],
   email_unavailable: [
-    "Email verification is currently unavailable. You can continue anonymously.",
-    "Verifikasi email belum tersedia. Anda dapat tetap anonim.",
+    "Email verification is currently unavailable. Please try again later.",
+    "Verifikasi email belum tersedia. Silakan coba lagi nanti.",
   ],
   ai_disabled: [
     "Assisted intake is unavailable. Use the report form below.",

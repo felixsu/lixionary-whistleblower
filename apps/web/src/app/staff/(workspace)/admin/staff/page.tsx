@@ -1,4 +1,4 @@
-import { Admin } from "@/components/suite/admin";
+import { redirect } from "next/navigation";
 export default function Page() {
-  return <Admin section="staff" />;
+  redirect("/staff/admin/users");
 }
