@@ -19,6 +19,7 @@ export const strings = {
     "Gunakan kode laporan dan rahasia akses yang tersimpan untuk mengikuti perkembangan dan berbicara secara pribadi dengan tim peninjau.",
   ],
   staffAccess: ["Staff access", "Akses staf"],
+  googleLogin: ["Sign in with Google", "Masuk dengan Google"],
   staffIntro: [
     "Sign in with your staff account. An authenticator or recovery code is required to continue.",
     "Masuk dengan akun staf Anda. Kode autentikator atau pemulihan diperlukan untuk melanjutkan.",
@@ -569,6 +570,26 @@ const errors: Record<string, [string, string]> = {
   unauthorized: [
     "Your session expired. Sign in again.",
     "Sesi Anda berakhir. Silakan masuk kembali.",
+  ],
+  google_cancelled: [
+    "Google sign-in was cancelled. Try again or use your password.",
+    "Proses masuk Google dibatalkan. Coba lagi atau gunakan kata sandi Anda.",
+  ],
+  google_expired: [
+    "Google sign-in expired. Please start again.",
+    "Proses masuk Google kedaluwarsa. Silakan mulai lagi.",
+  ],
+  google_ineligible: [
+    "This Google account cannot sign in to the staff portal. Use your staff password or contact your administrator.",
+    "Akun Google ini tidak dapat masuk ke portal staf. Gunakan kata sandi staf atau hubungi administrator Anda.",
+  ],
+  google_disabled: [
+    "Google sign-in is unavailable. Use your staff password.",
+    "Login Google tidak tersedia. Gunakan kata sandi staf Anda.",
+  ],
+  google_failed: [
+    "Google sign-in could not be completed. Try again or use your password.",
+    "Login Google belum dapat diselesaikan. Coba lagi atau gunakan kata sandi Anda.",
   ],
   mfa_required: [
     "Authenticator verification is required.",

@@ -175,6 +175,10 @@ export async function expire(db: Db) {
     }
   });
   await rows(db, sql`delete from staff_sessions where expires_at<now()`);
+  await rows(
+    db,
+    sql`delete from staff_google_transactions where expires_at<now()`,
+  );
   await rows(db, sql`delete from reporter_sessions where expires_at<now()`);
   await rows(
     db,

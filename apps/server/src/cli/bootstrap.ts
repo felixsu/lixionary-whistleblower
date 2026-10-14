@@ -25,7 +25,7 @@ try {
       throw new Error("Bootstrap allowed only on empty staff table");
     const [s] = await rows(
       tx,
-      sql`insert into staff(email,name,role,password_hash) values(${email},'Administrator','admin',${await hashSecret(password)}) returning id`,
+      sql`insert into staff(email,name,role,password_hash,password_initialized) values(${email},'Administrator','admin',${await hashSecret(password)},true) returning id`,
     );
     await audit(tx, "bootstrap", "staff_bootstrapped", null, {
       staffId: s!.id,

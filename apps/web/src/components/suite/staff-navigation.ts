@@ -88,27 +88,4 @@ export type CaseSection = (typeof caseSections)[number]["segment"];
 export function staffHome(role: StaffRole) {
   return role === "admin" ? "/staff/admin/settings" : "/staff/cases";
 }
-export function safeStaffReturn(value: string | null): string {
-  if (!value || /[\\\x00-\x20]/.test(value)) return "/staff";
-  try {
-    const url = new URL(value, "https://staff.invalid");
-    if (url.origin !== "https://staff.invalid" || !value.startsWith("/"))
-      return "/staff";
-    const path = url.pathname;
-    const valid =
-      path === "/staff" ||
-      staffNavigation.some((n) => n.href === path) ||
-      path === "/staff/admin/settings/history" ||
-      path === "/staff/admin/staff" ||
-      path === "/staff/admin/users/new" ||
-      /^\/staff\/admin\/users\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/edit$/.test(
-        path,
-      ) ||
-      /^\/staff\/cases\/[0-9a-f-]{36}(?:\/(?:messages|evidence|investigation|actions|closure|history))?$/.test(
-        path,
-      );
-    return valid ? path + url.search : "/staff";
-  } catch {
-    return "/staff";
-  }
-}
+export { safeStaffReturn } from "@whistle/shared";

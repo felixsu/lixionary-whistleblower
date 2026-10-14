@@ -29,6 +29,8 @@ docker compose --env-file .suite-dev/suite.env run --rm --no-deps case-migrate \
 
 Enter a password of at least 15 characters through stdin. Log in at `/staff/login` and scan the enrollment QR code with your authenticator app, or use the manual setup key or app link. Enter the app's six-digit code to complete enrollment and save the single-use recovery codes. Invite two managers for the standard team and two different managers for the independent team, create those teams, and configure the company policy, categories, deadlines, and all six retention periods. Production submissions are unavailable until this setup is complete.
 
+Staff can also use **Sign in with Google** when configured. Google login is limited to existing, active staff who have completed password setup; it cannot register staff or accept an invitation. MFA remains mandatory for both login methods. First Google login matches a verified Gmail or Google Workspace email to the staff email and saves Google's account ID only after local MFA succeeds. Subsequent logins use that account ID, even if the Google email changes. Password login and password reset remain available. See [Google credential setup](docs/runbook.md#google-staff-login).
+
 Before reporting, employees verify a registered, active email through a five-minute OTP. Unknown or inactive emails are rejected without an access-request form; contact the administrator to register an eligible email before returning to verify it. Phone admission remains disabled. Each reporting verification permits one report, one AI conversation, up to 30 AI messages and three draft attempts, for two hours. Reporting grants are kept only in browser memory; email reverification can resume an expired unfinished grant without resetting its AI budget. Gate verification does not enroll a case notification contact or enable email-based case recovery.
 
 Administrators manage **Employees** and **Account requests** at `/staff/admin/employees`. Add the employee directory before opening the channel. Existing case-code/PIN access remains independent of admission. Employee associations are removed when a submission is reserved; case records, staff APIs and case audits do not contain employee IDs or admission tokens.
@@ -53,7 +55,7 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 
 ## Versioning
 
-The root `package.json` is the release-version source of truth. All workspace packages share version `0.4.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.5.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
 
 ```sh
 pnpm version:check          # Validate every workspace package

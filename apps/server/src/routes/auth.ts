@@ -35,6 +35,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!(await limiter.hit("auth:" + digest(key), 10, 900)))
       throw new HttpError(429, "Too many attempts", "rate_limit");
   }
+  app.get("/login/options", () => ({ googleEnabled: !!config.google }));
   app.post("/login", async (req, reply) => {
     csrf(req);
     const v = credentials.parse(req.body);
@@ -56,6 +57,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       sql`insert into staff_sessions(token_hash,staff_id,expires_at) values(${digest(raw)},${s!.id as string},${expires})`,
     );
     sessionCookie(req, reply, STAFF_COOKIE, raw, expires);
+    await rows(
+      db,
+      sql`update staff set password_initialized=true where id=${String(s!.id)}`,
+    );
     await audit(db, String(s!.id), "staff_password_authenticated");
     return { mfaEnrolled: !!s!.mfa_enc };
   });
@@ -96,6 +101,33 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         tx,
         sql`select * from staff where id=${req.staff!.id} for update`,
       );
+      const [session] = await rows(
+        tx,
+        sql`select * from staff_sessions where id=${req.staffSessionId!} and staff_id=${req.staff!.id} and expires_at>now() and last_seen_at>now()-interval '15 minutes' for update`,
+      );
+      if (!s?.active || !session)
+        throw new HttpError(401, "Session expired", "unauthorized");
+      const googleSub = session.google_sub_pending as string | null;
+      if (googleSub) {
+        await rows(
+          tx,
+          sql`select pg_advisory_xact_lock(hashtextextended(${"staff-google:" + googleSub},0))`,
+        );
+        const [owner] = await rows(
+          tx,
+          sql`select id from staff where google_sub=${googleSub}`,
+        );
+        if (
+          !s.password_initialized ||
+          (s.google_sub && s.google_sub !== googleSub) ||
+          (owner && owner.id !== s.id)
+        )
+          throw new HttpError(
+            401,
+            "Google login unavailable",
+            "google_ineligible",
+          );
+      }
       let recovery = false;
       let secret: string | undefined;
       if (s!.mfa_enc || s!.mfa_pending_enc)
@@ -128,6 +160,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
       if (!ok && !recovery)
         throw new HttpError(401, "Invalid code", "invalid_code");
+      if (googleSub && !s.google_sub) {
+        await rows(
+          tx,
+          sql`update staff set google_sub=${googleSub} where id=${req.staff!.id}`,
+        );
+        await audit(tx, req.staff!.id, "staff_google_linked");
+      }
       let recoveryCodes: string[] = [];
       if (!s!.mfa_enc) {
         recoveryCodes = Array.from({ length: 8 }, token);
@@ -210,7 +249,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new HttpError(401, "Invalid credentials", "invalid_credentials");
       await rows(
         tx,
-        sql`update staff set password_hash=${await hashSecret(v.password)},active=true where id=${r.staff_id as string}`,
+        sql`update staff set password_hash=${await hashSecret(v.password)},password_initialized=true,active=true where id=${r.staff_id as string}`,
       );
       await rows(
         tx,

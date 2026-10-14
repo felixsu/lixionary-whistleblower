@@ -78,6 +78,25 @@ Keep `deploy/compose.vps.yml` included for this host. It assigns seven `/28` net
 
 nginx proxy directives follow the [official proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html); certificate issuance and renewal use [Certbot's webroot workflow](https://eff-certbot.readthedocs.io/en/stable/using.html#webroot).
 
+## Google staff login
+
+Google is an additional staff login mechanism. It creates no staff accounts, activates no invitations, and grants no roles. Existing permissions and mandatory local MFA apply equally to password and Google login. Staff must complete password setup before their first Google login. The schema upgrade recognizes completed setup from existing successful onboarding/authentication audit events; accounts without this evidence can use their staff password or finish password setup first.
+
+1. Create a Google OAuth client with application type **Web application** and configure its consent screen. Request only `openid email`; no Drive, Gmail, offline access, or profile enrichment is used. Choose a consent-screen audience that permits your intended staff and add test users while the Google project is in testing.
+2. Register the exact authorized redirect URI for each environment:
+   - Production: `https://whistle-blower.lixionary.com/api/staff/google/callback`
+   - Local development: `http://localhost:9551/api/staff/google/callback`
+   - Other hosts: `<PUBLIC_WEB_URL origin>/api/staff/google/callback`
+3. Run `scripts/setup-suite.mjs` for the existing configuration directory to create the new empty `secrets/staff_google_client_secret` file. Setup preserves existing values. On the Node-free VPS, use the existing Node-container setup command above. This placeholder is required by Compose even when Google is disabled.
+4. Set `STAFF_GOOGLE_CLIENT_ID` in that directory's `suite.env`. Enter the client secret into `secrets/staff_google_client_secret` using a secure editor; keep the file mode 600 and directory mode 700. Keep credentials out of chat, shell history, logs, and commits. Compose mounts the secret only into `case-api`.
+5. Apply the case database migration using the normal release procedure and recreate the staff API. The button is controlled by server configuration at runtime, so credential changes do not require rebuilding the frontend. Direct API development also supports `STAFF_GOOGLE_CLIENT_SECRET_FILE`; the inline environment variable is server-only. Both credentials absent means disabled; configuring only one prevents startup.
+
+On the first login, a verified Gmail or Google Workspace email (with the validated `hd` claim) must match the existing staff email. Other third-party Google-account email addresses are ineligible for automatic association. The stable Google account ID is saved only when local MFA succeeds. Later logins use that ID; changing Google's email does not change staff identity, staff email, or permissions. A different Google account cannot replace a binding by presenting the same email. There is no self-service linking, unlinking, or replacement UI in this release.
+
+Check Google login with an enrolled staff member, an unenrolled staff member, and an unregistered account. Confirm that protected staff APIs reject the Google pre-MFA session, that unenrolled staff must save recovery codes, and that password login still works. Cancellation, expired transactions, and provider failures return to the login form. Disabling Google requires clearing both credentials and recreating the staff API; staff passwords and MFA remain usable.
+
+The flow follows [Google's OpenID Connect server guidance](https://developers.google.com/identity/openid-connect/openid-connect) and [email ownership guidance](https://developers.google.com/identity/sign-in/web/backend-auth). A real-provider smoke test requires the configured OAuth client and a human completing Google sign-in and local MFA. Synthetic tests validate token claims/signatures, the database upgrade, account eligibility, sessions, and browser redirects independently of live credentials.
+
 ## Deploying from the development machine
 
 Use `pnpm deploy:vps --check` for a preflight that does not update the checkout, copy images or restart services. To release a clean, committed `main`, run `pnpm deploy:vps --push`; omit `--push` when `origin/main` already matches. The deployment refuses uncommitted changes, remote checkout changes, diverging history and revisions that differ from `origin/main`.

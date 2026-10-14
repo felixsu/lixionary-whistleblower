@@ -6,6 +6,8 @@ import type { Config } from "./config.js";
 import type { Db } from "./db/client.js";
 import { HttpError } from "./lib/errors.js";
 import { authRoutes } from "./routes/auth.js";
+import { googleRoutes } from "./routes/google.js";
+import type { GoogleProvider } from "./google-oidc.js";
 import { reporterRoutes } from "./routes/reporter.js";
 import { caseRoutes } from "./routes/cases.js";
 import { adminRoutes } from "./routes/admin.js";
@@ -17,6 +19,7 @@ export interface AppDeps {
   db: Db;
   config: Config;
   limiter: Limiter;
+  google?: GoogleProvider;
 }
 declare module "fastify" {
   interface FastifyInstance {
@@ -73,6 +76,7 @@ export async function buildApp(deps: AppDeps) {
     return reply.status(500).send({ error: "internal_error" });
   });
   await app.register(authRoutes, { prefix: "/api/staff" });
+  await app.register(googleRoutes, { prefix: "/api/staff/google" });
   await app.register(reporterRoutes, { prefix: "/api/reporter" });
   await app.register(caseRoutes, { prefix: "/api/cases" });
   await app.register(adminRoutes, { prefix: "/api/admin" });

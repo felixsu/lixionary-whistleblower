@@ -11,6 +11,8 @@ x-runtime: &runtime
 x-case-env: &case-env
   NODE_ENV: ${SUITE_NODE_ENV:-production}
   PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost}
+  STAFF_GOOGLE_CLIENT_ID: ${STAFF_GOOGLE_CLIENT_ID:-}
+  STAFF_GOOGLE_CLIENT_SECRET_FILE: /run/secrets/staff_google_client_secret
   HOST: 0.0.0.0
   TRUST_PROXY: "1"
   SUITE_DATABASE_URL_FILE: /run/secrets/case_database_url
@@ -126,6 +128,7 @@ services:
         service_event_key,
         abuse_key,
         staff_smtp_pass,
+        staff_google_client_secret,
         zoho_api_key,
       ]
     networks: [case-db, services, edge, delivery]
@@ -281,6 +284,10 @@ secrets:
     { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_abuse_key" }
   staff_smtp_pass:
     { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/staff_smtp_pass" }
+  staff_google_client_secret:
+    {
+      file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/staff_google_client_secret",
+    }
   privacy_smtp_pass:
     { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/privacy_smtp_pass" }
   zoho_api_key: { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/zoho_api_key" }

@@ -1,14 +1,15 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { safeStaffReturn } from "@/components/suite/staff-navigation";
 import { QRCodeSVG } from "qrcode.react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import {
   Shell,
   useLanguage,
   useAction,
   Field,
   ErrorBox,
+  friendly,
 } from "@/components/suite/common";
 export default function Login() {
   const l = useLanguage(),
@@ -21,7 +22,58 @@ export default function Login() {
     [code, setCode] = useState(""),
     [codes, setCodes] = useState<string[]>([]),
     [reset, setReset] = useState(false),
-    [sent, setSent] = useState(false);
+    [sent, setSent] = useState(false),
+    [googleEnabled, setGoogleEnabled] = useState(false),
+    [googleError, setGoogleError] = useState(""),
+    [hydrated, setHydrated] = useState(false),
+    [resuming, setResuming] = useState(false);
+  const initialized = useRef(false);
+  async function prepareMfa(enrolled: boolean) {
+    if (!enrolled)
+      setEnroll(
+        await api("/api/staff/mfa/enroll", { method: "POST", body: {} }),
+      );
+    setStage("mfa");
+  }
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    setHydrated(true);
+    void api<{ googleEnabled: boolean }>("/api/staff/login/options")
+      .then((options) => setGoogleEnabled(options.googleEnabled))
+      .catch(() => {});
+    const params = new URLSearchParams(window.location.search);
+    const resume = params.get("google") === "continue";
+    const error = params.get("googleError");
+    if (error) {
+      const known = [
+        "google_cancelled",
+        "google_expired",
+        "google_ineligible",
+        "google_disabled",
+        "rate_limit",
+      ];
+      setGoogleError(known.includes(error) ? error : "google_failed");
+    }
+    params.delete("google");
+    params.delete("googleError");
+    if (resume || error)
+      window.history.replaceState(
+        null,
+        "",
+        `/staff/login${params.size ? "?" + params.toString() : ""}`,
+      );
+    if (resume) {
+      setResuming(true);
+      void api<{ mfaVerified: boolean; mfaEnrolled: boolean }>("/api/staff/me")
+        .then(async (identity) => {
+          if (identity.mfaVerified) finishLogin();
+          else await prepareMfa(identity.mfaEnrolled);
+        })
+        .catch(() => setGoogleError("google_expired"))
+        .finally(() => setResuming(false));
+    }
+  }, []);
   function finishLogin() {
     window.location.href = safeStaffReturn(
       new URLSearchParams(window.location.search).get("next"),
@@ -33,11 +85,20 @@ export default function Login() {
         <p className="eyebrow">{t("staffAccess")}</p>
         <h1>{t("staff")}</h1>
         {stage === "password" && <p className="muted">{t("staffIntro")}</p>}
-        <ErrorBox error={a.error} />
+        <ErrorBox
+          error={
+            a.error ||
+            (googleError
+              ? friendly(new ApiError(401, googleError, ""), lang)
+              : "")
+          }
+        />
+        {resuming && <p role="status">{t("loading")}</p>}
         {stage === "password" ? (
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setGoogleError("");
               void a.run(async () => {
                 if (reset) {
                   await api("/api/staff/password/request", {
@@ -52,14 +113,7 @@ export default function Login() {
                   { method: "POST", body: { email, password } },
                 );
                 setPassword("");
-                if (!r.mfaEnrolled)
-                  setEnroll(
-                    await api("/api/staff/mfa/enroll", {
-                      method: "POST",
-                      body: {},
-                    }),
-                  );
-                setStage("mfa");
+                await prepareMfa(r.mfaEnrolled);
               });
             }}
           >
@@ -67,6 +121,7 @@ export default function Login() {
               label={t("email")}
               type="email"
               autoComplete="username"
+              disabled={!hydrated || a.busy || resuming}
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -76,15 +131,46 @@ export default function Login() {
                 label={t("password")}
                 type="password"
                 autoComplete="current-password"
+                disabled={!hydrated || a.busy || resuming}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             )}
-            <button disabled={a.busy}>{t(reset ? "reset" : "login")}</button>
+            <button disabled={!hydrated || a.busy || resuming}>
+              {t(reset ? "reset" : "login")}
+            </button>
+            {!reset && googleEnabled && (
+              <button
+                className="secondary"
+                type="button"
+                disabled={!hydrated || a.busy || resuming}
+                onClick={() => {
+                  setGoogleError("");
+                  void a.run(async () => {
+                    const { authorizationUrl } = await api<{
+                      authorizationUrl: string;
+                    }>("/api/staff/google/start", {
+                      method: "POST",
+                      body: {
+                        next: safeStaffReturn(
+                          new URLSearchParams(window.location.search).get(
+                            "next",
+                          ),
+                        ),
+                      },
+                    });
+                    window.location.assign(authorizationUrl);
+                  });
+                }}
+              >
+                {t("googleLogin")}
+              </button>
+            )}
             <button
               className="secondary"
               type="button"
+              disabled={!hydrated || a.busy || resuming}
               onClick={() => setReset(!reset)}
             >
               {t(reset ? "login" : "reset")}
@@ -146,7 +232,7 @@ export default function Login() {
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
-            <button disabled={a.busy}>{t("verify")}</button>
+            <button disabled={a.busy || resuming}>{t("verify")}</button>
           </form>
         ) : (
           <>
