@@ -30,8 +30,17 @@ for service in case-db private-db; do
 done
 "${compose[@]}" exec -T case-db pg_restore -U postgres -d suite_cases --no-owner --no-privileges --exit-on-error < "$snapshot/cases.dump"
 "${compose[@]}" exec -T private-db pg_restore -U postgres -d suite_privacy --no-owner --no-privileges --exit-on-error < "$snapshot/privacy.dump"
-"${compose[@]}" run --rm case-migrate >/dev/null
-"${compose[@]}" run --rm private-migrate >/dev/null
+for domain in case private; do
+  args=(run -T --rm)
+  input=/dev/null
+  if [[ -f "$snapshot/$domain-rate-limits.json" ]]; then
+    args+=(-e RATE_LIMIT_IMPORT_STDIN=1)
+    input="$snapshot/$domain-rate-limits.json"
+  fi
+  service=case-migrate
+  [[ "$domain" != private ]] || service=private-migrate
+  "${compose[@]}" "${args[@]}" "$service" < "$input" >/dev/null
+done
 docker volume create "${RESTORE_PROJECT}_suite-vault" >/dev/null
 docker run --rm --network none -v "${RESTORE_PROJECT}_suite-vault:/vault" -v "$snapshot:/snapshot:ro" alpine:3.22 sh -c 'tar -C /vault -xf /snapshot/vault.tar && chown -R 1000:1000 /vault'
 "${compose[@]}" run --rm --no-deps -v "$(dirname "$LATEST_MANIFEST"):/manifest:ro" -e "AUDIT_CHECKPOINT_FILE=/manifest/$(basename "$LATEST_MANIFEST")" case-migrate node dist/cli/audit.js replay-deletions "/manifest/$(basename "$LATEST_MANIFEST")" >/dev/null

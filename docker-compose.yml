@@ -19,7 +19,6 @@ x-case-env: &case-env
   SERVICE_EVENT_KEY_FILE: /run/secrets/service_event_key
   ABUSE_KEY_FILE: /run/secrets/abuse_key
   PRIVACY_ORIGIN: http://privacy-api:6405
-  REDIS_URL: redis://case-redis:6379
   STAFF_SMTP_HOST: ${STAFF_SMTP_HOST:-mailpit}
   STAFF_SMTP_PORT: ${STAFF_SMTP_PORT:-1025}
   STAFF_SMTP_USER: ${STAFF_SMTP_USER:-}
@@ -38,7 +37,6 @@ x-private-env: &private-env
   CAPABILITY_PUBLIC_KEY_FILE: /run/secrets/capability_public_key
   SERVICE_EVENT_KEY_FILE: /run/secrets/service_event_key
   PRIVACY_ABUSE_KEY_FILE: /run/secrets/privacy_abuse_key
-  PRIVACY_REDIS_URL: redis://private-redis:6379
   PRIVACY_STORAGE: /data/privacy
   CASE_ORIGIN: http://case-api:9550
   CONVERTER_ORIGIN: http://converter:6406
@@ -114,18 +112,6 @@ services:
     command: [node, dist/provision.js]
     networks: [private-db]
     depends_on: { private-db: { condition: service_healthy } }
-  case-redis:
-    image: redis:8-alpine
-    command: [redis-server, --appendonly, "yes"]
-    networks: [case-db]
-    volumes: [suite-case-redis:/data]
-    restart: unless-stopped
-  private-redis:
-    image: redis:8-alpine
-    command: [redis-server, --appendonly, "yes"]
-    networks: [private-db]
-    volumes: [suite-private-redis:/data]
-    restart: unless-stopped
   case-api:
     <<: *runtime
     image: whistle-suite-case:local
@@ -143,11 +129,7 @@ services:
         zoho_api_key,
       ]
     networks: [case-db, services, edge, delivery]
-    depends_on:
-      {
-        case-migrate: { condition: service_completed_successfully },
-        case-redis: { condition: service_started },
-      }
+    depends_on: { case-migrate: { condition: service_completed_successfully } }
     healthcheck:
       {
         test:
@@ -162,6 +144,8 @@ services:
       }
   privacy-api:
     <<: *runtime
+    stop_grace_period: 180s
+    mem_limit: 1g
     image: whistle-suite-private:local
     build: { context: ., dockerfile: apps/privacy/Dockerfile }
     environment: *private-env
@@ -179,11 +163,11 @@ services:
         minimax_api_key,
       ]
     volumes: [suite-vault:/data/privacy]
-    networks: [private-db, services, edge, delivery]
+    networks: [private-db, services, edge, conversion, delivery]
     depends_on:
       {
         private-migrate: { condition: service_completed_successfully },
-        private-redis: { condition: service_started },
+        converter: { condition: service_healthy },
       }
     healthcheck:
       {
@@ -196,47 +180,6 @@ services:
           ],
         interval: 15s,
         retries: 10,
-      }
-  privacy-worker:
-    <<: *runtime
-    image: whistle-suite-private:local
-    environment: *private-env
-    secrets:
-      [
-        privacy_database_url,
-        vault_keyring,
-        capability_public_key,
-        service_event_key,
-        privacy_abuse_key,
-        privacy_smtp_pass,
-        zoho_api_key,
-        twilio_sid,
-        twilio_token,
-        minimax_api_key,
-      ]
-    volumes: [suite-vault:/data/privacy]
-    command: [node, dist/worker.js]
-    networks: [private-db, services, conversion, delivery]
-    depends_on:
-      {
-        private-migrate: { condition: service_completed_successfully },
-        scanner: { condition: service_healthy },
-        converter: { condition: service_started },
-      }
-    mem_limit: 1g
-  scanner:
-    image: clamav/clamav:stable
-    platform: linux/amd64
-    networks: [conversion, signature-updates]
-    volumes: [suite-clamav:/var/lib/clamav]
-    restart: unless-stopped
-    mem_limit: 2g
-    healthcheck:
-      {
-        test: [CMD, clamdscan, --ping, "1"],
-        interval: 30s,
-        retries: 30,
-        start_period: 90s,
       }
   converter:
     image: whistle-suite-private:local
@@ -251,6 +194,16 @@ services:
     cpus: 1
     pids_limit: 200
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          'fetch("http://127.0.0.1:6406/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))',
+        ]
+      interval: 5s
+      retries: 30
   web:
     <<: *runtime
     cap_add: []
@@ -273,15 +226,16 @@ services:
         case-api: { condition: service_healthy },
         privacy-api: { condition: service_healthy },
       }
-  caddy:
-    image: caddy:2-alpine
-    profiles: [production]
-    environment: { SUITE_DOMAIN: "${SUITE_DOMAIN:-localhost}" }
-    ports: ["80:80", "443:443"]
-    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", suite-caddy:/data]
-    networks: [edge]
-    depends_on: [web]
-    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          'Promise.all(["/","/api/health","/privacy/health"].map(p=>fetch("http://127.0.0.1:9551"+p))).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))',
+        ]
+      interval: 5s
+      retries: 30
   mailpit:
     image: axllent/mailpit:v1.27
     profiles: [development]
@@ -296,15 +250,10 @@ networks:
   edge: {}
   conversion: { internal: true }
   delivery: {}
-  signature-updates: {}
 volumes:
   suite-case-db: {}
   suite-private-db: {}
-  suite-case-redis: {}
-  suite-private-redis: {}
   suite-vault: {}
-  suite-clamav: {}
-  suite-caddy: {}
 secrets:
   case_pg_password:
     { file: "${SUITE_CONFIG_DIR:-.suite-dev}/secrets/case_pg_password" }

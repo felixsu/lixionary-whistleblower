@@ -89,7 +89,7 @@ export const strings = {
   verify: ["Verify", "Verifikasi"],
   delete: ["Delete", "Hapus"],
   files: ["Evidence", "Bukti"],
-  upload: ["Upload for scanning", "Unggah untuk pemindaian"],
+  upload: ["Upload for processing", "Unggah untuk diproses"],
   preview: ["View sanitized preview", "Lihat pratinjau yang disanitasi"],
   approve: [
     "Approve and share with reviewers",
@@ -188,7 +188,7 @@ export const strings = {
   withdrawn: ["Withdrawn", "Ditarik"],
   pending: ["Pending", "Menunggu"],
   none: ["Unverified", "Belum diverifikasi"],
-  quarantined: ["Scanning", "Dipindai"],
+  quarantined: ["Processing", "Diproses"],
   published: ["Shared", "Dibagikan"],
   rejected: ["Rejected", "Ditolak"],
   overdue: ["Overdue", "Lewat tenggat"],

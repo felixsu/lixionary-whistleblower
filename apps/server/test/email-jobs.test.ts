@@ -16,7 +16,6 @@ async function exercise(rejected: boolean, staffToken = false) {
   const config = loadConfig({
     NODE_ENV: "test",
     SUITE_DATABASE_URL: "unused",
-    REDIS_URL: "unused",
     CASE_KEYRING: JSON.stringify({
       active: "a",
       keys: { a: randomBytes(32).toString("base64") },

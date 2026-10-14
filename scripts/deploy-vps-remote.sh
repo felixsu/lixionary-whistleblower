@@ -30,9 +30,10 @@ if v.get('SUITE_NODE_ENV')!='production' or v.get('PUBLIC_WEB_URL')!='https://wh
 PY
 "${base[@]}" config --quiet
 sudo -n nginx -t
-python3 - <<'PY'
-import json,subprocess
-names=['case-api','privacy-api','privacy-worker','web','converter','case-db','private-db','case-redis','private-redis','scanner']
+python3 - "${base[@]}" config --format json <<'PY'
+import json,subprocess,sys
+configured=json.loads(subprocess.check_output(sys.argv[1:]))['services']
+names=[n for n in ['case-api','privacy-api','privacy-worker','web','converter','case-db','private-db','case-redis','private-redis'] if n in configured]
 for name in names:
  c=json.loads(subprocess.check_output(['docker','inspect',f'whistle-suite-{name}-1']))[0]
  if not c['State']['Running'] or c['State'].get('Health',{}).get('Status','healthy')!='healthy':
@@ -58,19 +59,13 @@ git show "$revision:deploy/compose.vps.yml" > "$release/requested-vps.yml"
 docker compose --project-name whistle-suite --project-directory "$root" \
   -f "$release/requested-compose.yml" -f "$release/requested-vps.yml" \
   --env-file "$config/suite.env" config --format json > "$release/requested-config.json"
-python3 - "$release" <<'PY'
+python3 "$release/deployment-topology.py" validate "$release/previous-config.json" "$release/requested-config.json"
+read -r -a old_writers <<< "$(python3 - "$release/previous-config.json" <<'PY'
 import json,sys
-from pathlib import Path
-p=Path(sys.argv[1]);before=json.loads((p/'previous-config.json').read_text());after=json.loads((p/'requested-config.json').read_text())
-for key in ['networks','volumes']:
- if before.get(key)!=after.get(key):raise SystemExit('Infrastructure/network changes need a separate upgrade procedure.')
-for name in ['case-db','private-db','case-redis','private-redis','scanner']:
- if before['services'][name]!=after['services'][name]:raise SystemExit(f'Infrastructure upgrade must be separate: {name}')
-for name in ['case-api','web']:
- if before['services'][name].get('ports')!=after['services'][name].get('ports'):raise SystemExit('Application port changes must be configured separately.')
-for secret in after.get('secrets',{}).values():
- if 'file' in secret and not Path(secret['file']).is_file():raise SystemExit('A required production secret file is missing.')
+services=json.load(open(sys.argv[1]))['services']
+print(' '.join(n for n in ['web','case-api','privacy-api','privacy-worker'] if n in services))
 PY
+)"
 
 stopped=0
 migrating=0
@@ -82,7 +77,7 @@ cleanup(){
     rmdir "$release/staging" 2>/dev/null || true
   fi
   if [[ "$status" -ne 0 && "$stopped" -eq 1 && "$migrating" -eq 0 ]]; then
-    "${old[@]}" start case-api privacy-api privacy-worker web >/dev/null 2>&1 || true
+    "${old[@]}" start "${old_writers[@]}" >/dev/null 2>&1 || true
   fi
   if [[ "$status" -ne 0 ]]; then
     printf 'Deployment failed. Protected release logs and snapshot: %s\n' "$release" >&2
@@ -100,7 +95,9 @@ import json,subprocess,sys
 from pathlib import Path
 folder=Path(sys.argv[1]); revision=sys.argv[2]
 services={}
+configured=json.loads((folder/'previous-config.json').read_text())['services']
 for name in ['case-api','privacy-api','privacy-worker','converter','web']:
+ if name not in configured:continue
  c=json.loads(subprocess.check_output(['docker','inspect',f'whistle-suite-{name}-1']))[0]
  services[name]={'image':c['Image'],'pull_policy':'never'}
 services['case-migrate']=services['case-api'];services['private-migrate']=services['privacy-api']
@@ -121,15 +118,27 @@ for image in images.values():
  c=json.loads(subprocess.check_output(['docker','image','inspect',image]))[0]
  if c['Architecture']!='amd64' or c['Os']!='linux' or c['Config'].get('Labels',{}).get('org.opencontainers.image.revision')!=revision:
   raise SystemExit('Image platform or revision mismatch')
-mapping={'case-api':'case','case-migrate':'case','privacy-api':'private','privacy-worker':'private','private-migrate':'private','converter':'private','web':'web'}
+mapping={'case-api':'case','case-migrate':'case','privacy-api':'private','private-migrate':'private','converter':'private','web':'web'}
 (folder/'compose.images.json').write_text(json.dumps({'services':{k:{'image':images[v],'pull_policy':'never'} for k,v in mapping.items()}}))
 PY
 
 printf 'Taking a consistent encrypted snapshot before migrations...\n'
 mkdir -m 700 "$release/staging"
 stopped=1
-"${old[@]}" stop web case-api privacy-api privacy-worker > "$release/backup.log" 2>&1
+"${old[@]}" stop "${old_writers[@]}" > "$release/backup.log" 2>&1
 "${old[@]}" run -T --rm --no-deps case-migrate node dist/cli/audit.js checkpoint - > "$release/staging/checkpoint.json" 2>> "$release/backup.log"
+for domain in case private; do
+  if python3 - "$release/previous-config.json" "$domain-redis" <<'PY'
+import json,sys
+sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1]))['services'] else 1)
+PY
+  then
+    python3 "$release/deployment-topology.py" export "$domain-redis" "$release/$domain-rate-limits.json"
+  else
+    printf '[]\n' > "$release/$domain-rate-limits.json"
+  fi
+  cp "$release/$domain-rate-limits.json" "$release/staging/$domain-rate-limits.json"
+done
 "${old[@]}" exec -T case-db pg_dump -U postgres -Fc suite_cases > "$release/staging/cases.dump"
 "${old[@]}" exec -T private-db pg_dump -U postgres -Fc suite_privacy > "$release/staging/privacy.dump"
 vault="$(docker inspect whistle-suite-privacy-api-1 --format '{{range .Mounts}}{{if eq .Destination "/data/privacy"}}{{.Name}}{{end}}{{end}}')"
@@ -156,9 +165,9 @@ new=("${base[@]}" -f "$release/compose.images.json")
 "${new[@]}" config --quiet
 printf 'Applying migrations, then starting the verified image IDs...\n'
 migrating=1
-"${new[@]}" run -T --rm --no-deps case-migrate > "$release/migrations.log" 2>&1
-"${new[@]}" run -T --rm --no-deps private-migrate >> "$release/migrations.log" 2>&1
-"${new[@]}" up -d --no-build --no-deps --pull never --wait --wait-timeout 600 case-api privacy-api privacy-worker converter web > "$release/start.log" 2>&1
+"${new[@]}" run -T --rm --no-deps -e RATE_LIMIT_IMPORT_STDIN=1 case-migrate < "$release/case-rate-limits.json" > "$release/migrations.log" 2>&1
+"${new[@]}" run -T --rm --no-deps -e RATE_LIMIT_IMPORT_STDIN=1 private-migrate < "$release/private-rate-limits.json" >> "$release/migrations.log" 2>&1
+"${new[@]}" up -d --no-build --no-deps --pull never --wait --wait-timeout 600 case-api privacy-api converter web > "$release/start.log" 2>&1
 stopped=0
 
 # nginx changes are limited to this site's files; failed validation restores it.
@@ -173,15 +182,45 @@ sudo -n systemctl reload nginx
 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:9550/api/health > /dev/null
 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:9551/privacy/health > /dev/null
 "${new[@]}" run -T --rm --no-deps case-migrate node dist/cli/audit.js verify > "$release/audit.log" 2>&1
+# Verify the public proxy and frontend identity before retiring the old topology.
+for endpoint in /api/health /privacy/health /; do
+  file=public-home.html
+  [[ "$endpoint" != /api/health ]] || file=public-case-health.json
+  [[ "$endpoint" != /privacy/health ]] || file=public-private-health.json
+  curl --fail --silent --show-error --retry 3 --retry-connrefused --max-time 20 "https://whistle-blower.lixionary.com$endpoint" > "$release/$file"
+done
+python3 - "$release" "$revision" <<'PY'
+import json,sys
+from pathlib import Path
+folder=Path(sys.argv[1]);revision=sys.argv[2]
+for name in ['public-case-health.json','public-private-health.json']:
+ if json.loads((folder/name).read_text()).get('ok') is not True:raise SystemExit('Public API health failed')
+html=(folder/'public-home.html').read_text()
+version=json.loads(Path('package.json').read_text())['version']
+if f'data-app-revision="{revision}"' not in html or f'data-app-version="{version}"' not in html:raise SystemExit('Public frontend revision mismatch')
+PY
+# Only retired containers in this Compose project may be removed; preserve volumes.
+python3 - <<'PY'
+import json,subprocess
+for service in ['privacy-worker','case-redis','private-redis','scanner','caddy']:
+ name=f'whistle-suite-{service}-1'
+ result=subprocess.run(['docker','inspect',name],capture_output=True,text=True)
+ if result.returncode:continue
+ labels=json.loads(result.stdout)[0].get('Config',{}).get('Labels',{})
+ if labels.get('com.docker.compose.project')!='whistle-suite' or labels.get('com.docker.compose.service')!=service:
+  raise SystemExit('Refusing to remove an unrelated container')
+ subprocess.run(['docker','rm','-f',name],check=True,stdout=subprocess.DEVNULL)
+PY
+rm "$release/case-rate-limits.json" "$release/private-rate-limits.json"
 cp "$release/compose.images.json" "$config/active-release.json"
 python3 - "$release" "$revision" <<'PY'
 import datetime,json,subprocess,sys
 from pathlib import Path
 folder=Path(sys.argv[1]);revision=sys.argv[2];images=json.loads((folder/'images.json').read_text())['images']
-mapping={'case-api':'case','privacy-api':'private','privacy-worker':'private','converter':'private','web':'web'}
+mapping={'case-api':'case','privacy-api':'private','converter':'private','web':'web'}
 for service,kind in mapping.items():
  c=json.loads(subprocess.check_output(['docker','inspect',f'whistle-suite-{service}-1']))[0]
- if c['Image']!=images[kind] or not c['State']['Running']:raise SystemExit('Running image mismatch')
+ if c['Image']!=images[kind] or not c['State']['Running'] or c['State'].get('Health',{}).get('Status','healthy')!='healthy':raise SystemExit('Running image mismatch')
 record={'revision':revision,'images':images,'activated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'snapshot':'snapshot.wbenc','local_backup_authenticated':True}
 (folder/'deployment.json').write_text(json.dumps(record,indent=2)+'\n')
 PY

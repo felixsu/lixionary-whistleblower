@@ -1,5 +1,4 @@
-import { createClient } from "redis";
-import { redisLimiter, safeError } from "@whistle/runtime";
+import { postgresLimiter, safeError } from "@whistle/runtime";
 import { loadEnvFiles } from "./lib/env.js";
 import { loadConfig } from "./config.js";
 import { sql } from "drizzle-orm";
@@ -9,12 +8,12 @@ import { startJobs } from "./jobs.js";
 loadEnvFiles();
 const config = loadConfig();
 const { db, close } = createDb(config.dbUrl);
-const redis = createClient({ url: config.redisUrl });
-redis.on("error", () => console.error("rate limit store unavailable"));
-await redis.connect();
-const app = await buildApp({ config, db, limiter: redisLimiter(redis) });
+const app = await buildApp({
+  config,
+  db,
+  limiter: postgresLimiter((query) => db.execute(query)),
+});
 app.get("/api/health", async () => {
-  await redis.ping();
   await rows(db, sql`select 1`);
   return { ok: true };
 });
@@ -25,7 +24,6 @@ for (const signal of ["SIGINT", "SIGTERM"])
       stop();
       await app.close();
       await close();
-      await redis.quit();
     })().catch((e) => {
       console.error(safeError(e));
       process.exitCode = 1;

@@ -1,4 +1,6 @@
 import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { importRateLimits } from "@whistle/runtime";
 import { readFileSync } from "node:fs";
 import { runMigrations } from "../db/migrate.js";
 const privateService = false;
@@ -46,6 +48,15 @@ try {
       );
     }
   });
+  const imported =
+    process.env.RATE_LIMIT_IMPORT_STDIN === "1"
+      ? readFileSync(0, "utf8")
+      : undefined;
+  if (imported)
+    await importRateLimits(
+      (query) => drizzle(owner).execute(query),
+      JSON.parse(imported),
+    );
   console.log("Migrations and runtime permissions applied.");
 } finally {
   await owner.end();

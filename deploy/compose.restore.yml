@@ -7,5 +7,3 @@ services:
     ports: !reset []
   web:
     ports: !reset []
-  caddy:
-    ports: !reset []

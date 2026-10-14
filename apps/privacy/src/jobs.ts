@@ -1,9 +1,4 @@
 import { randomUUID, createHash } from "node:crypto";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import twilio from "twilio";
 import { sql } from "drizzle-orm";
 import { seal, unseal, safeError, createEmailSender } from "@whistle/runtime";
@@ -20,7 +15,6 @@ import {
   PrivacyError,
   evidenceAudit,
 } from "./service.js";
-const run = promisify(execFile);
 export function startJobs(
   db: Db,
   config: Config,
@@ -166,20 +160,14 @@ export function startJobs(
           log.error(safeError(e), "private delivery failed");
         }
       }
+      if (stopped) return;
       const [f] = await rows(
         db,
         sql`update files set lease_at=now() where id=(select id from files where status='quarantined' and (lease_at is null or lease_at<now()-interval '5 minutes') order by created_at for update skip locked limit 1) returning *`,
       );
       if (f) {
-        const dir = await mkdtemp(join(tmpdir(), "wb-scan-"));
         try {
-          const original = await fileBytes(config, String(f.id), "original"),
-            path = join(dir, "upload");
-          await writeFile(path, original, { mode: 0o600 });
-          await run(config.scanner, ["--stream", "--no-summary", path], {
-            timeout: 60000,
-            maxBuffer: 65536,
-          });
+          const original = await fileBytes(config, String(f.id), "original");
           const response = await fetch(
             `${process.env.CONVERTER_ORIGIN ?? "http://127.0.0.1:6406"}/convert`,
             {
@@ -206,32 +194,20 @@ export function startJobs(
           );
           await rows(
             db,
-            sql`update files set status='review',derivative_path=${derivative},mime=${r.mime},size=${bytes.length},sha256=${createHash("sha256").update(bytes).digest("hex")},pages=${r.pages},transformation=${r.transformation},scanned_at=now(),scan_version=${String(
-              (
-                await run(config.scanner, ["--version"], {
-                  timeout: 10000,
-                  maxBuffer: 4096,
-                })
-              ).stdout,
-            )
-              .trim()
-              .slice(
-                0,
-                200,
-              )},lease_at=null where id=${f.id} and lease_at=${f.lease_at}`,
+            sql`update files set status='review',derivative_path=${derivative},mime=${r.mime},size=${bytes.length},sha256=${createHash("sha256").update(bytes).digest("hex")},pages=${r.pages},transformation=${r.transformation},lease_at=null where id=${f.id} and lease_at=${f.lease_at}`,
           );
           await evidenceAudit(
             db,
             config,
             String(f.case_id),
             String(f.id),
-            "evidence_scanned",
+            "evidence_processed",
             createHash("sha256").update(bytes).digest("hex"),
           );
         } catch (e) {
           await rows(
             db,
-            sql`update files set status='rejected',error_code='scan_or_conversion_failed',lease_at=null where id=${f.id} and lease_at=${f.lease_at}`,
+            sql`update files set status='rejected',error_code='conversion_failed',lease_at=null where id=${f.id} and lease_at=${f.lease_at}`,
           );
           await evidenceAudit(
             db,
@@ -241,8 +217,6 @@ export function startJobs(
             "evidence_rejected",
           );
           log.error(safeError(e), "evidence rejected");
-        } finally {
-          await rm(dir, { recursive: true, force: true });
         }
       }
     } catch (e) {
@@ -251,25 +225,34 @@ export function startJobs(
       busy = false;
     }
   }
-  const timer = setInterval(() => void tick(), 2000);
+  const active = new Set<Promise<void>>();
+  const track = (operation: Promise<void>) => {
+    active.add(operation);
+    void operation.finally(() => active.delete(operation));
+  };
+  const timer = setInterval(() => track(tick()), 2000);
   timer.unref();
-  void tick();
+  track(tick());
   const retention = setInterval(
     () =>
-      void expire(db, config).catch((e) =>
-        log.error(safeError(e), "private retention failed"),
+      track(
+        expire(db, config).catch((e) =>
+          log.error(safeError(e), "private retention failed"),
+        ),
       ),
     60000,
   );
   retention.unref();
-  return () => {
+  return async () => {
     stopped = true;
     clearInterval(timer);
     clearInterval(retention);
+    await Promise.all(active);
     mail.close();
   };
 }
 export async function expire(db: Db, config: Config) {
+  await rows(db, sql`delete from rate_limits where expires_at<=now()`);
   await db.transaction(async (tx) => {
     await rows(
       tx,

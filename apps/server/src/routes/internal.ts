@@ -94,6 +94,7 @@ export async function internalRoutes(app: FastifyInstance) {
           action: z.enum([
             "evidence_uploaded",
             "evidence_scanned",
+            "evidence_processed",
             "evidence_rejected",
             "evidence_redacted",
             "evidence_approved",

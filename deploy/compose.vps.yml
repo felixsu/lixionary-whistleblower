@@ -19,9 +19,6 @@ networks:
   delivery:
     ipam:
       config: [{ subnet: 10.245.95.80/28 }]
-  signature-updates:
-    ipam:
-      config: [{ subnet: 10.245.95.96/28 }]
   case-db-access:
     ipam:
       config: [{ subnet: 10.245.95.112/28 }]

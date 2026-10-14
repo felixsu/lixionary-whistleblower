@@ -1,16 +1,32 @@
-import { createClient } from "redis";
-import { redisLimiter } from "@whistle/runtime";
+import { postgresLimiter, safeError } from "@whistle/runtime";
 import { loadConfig } from "./config.js";
 import { createDb } from "./db/client.js";
 import { buildApp } from "./app.js";
+import { startJobs } from "./jobs.js";
 const config = loadConfig();
-const { db, close } = createDb(config.dbUrl),
-  redis = createClient({ url: config.redisUrl });
-redis.on("error", () => console.error("private rate limit store unavailable"));
-await redis.connect();
-const app = await buildApp({ db, config, limiter: redisLimiter(redis) });
+const { db, close } = createDb(config.dbUrl);
+const app = await buildApp({
+  db,
+  config,
+  limiter: postgresLimiter((query) => db.execute(query)),
+});
+const stop = startJobs(db, config, app.log);
+let shuttingDown = false;
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {
-    void Promise.all([app.close(), close(), redis.quit()]);
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const timeout = setTimeout(() => process.exit(1), 175000);
+    void (async () => {
+      const drained = stop();
+      await app.close();
+      await drained;
+      await close();
+    })()
+      .catch((e) => {
+        console.error(safeError(e));
+        process.exitCode = 1;
+      })
+      .finally(() => clearTimeout(timeout));
   });
 await app.listen({ host: config.host, port: config.port });

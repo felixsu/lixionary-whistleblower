@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 -m pip install cryptography==50.0.0
-      - run: bash -n scripts/deploy-vps-remote.sh scripts/backup-suite.sh
+      - run: bash -n scripts/deploy-vps-remote.sh scripts/backup-suite.sh scripts/restore-suite.sh
       - run: node --test scripts/test/*.test.mjs
   checks:
     runs-on: ubuntu-24.04

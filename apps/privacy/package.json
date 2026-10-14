@@ -1,13 +1,12 @@
 {
   "name": "@whistle/privacy",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.build.json && cp -R src/db/migrations dist/db/",
     "start": "node dist/main.js",
-    "worker": "node dist/worker.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -27,7 +26,6 @@
     "sharp": "^0.35.5",
     "zod": "^4.6.5",
     "@whistle/runtime": "workspace:*",
-    "redis": "^6.3.0",
     "twilio": "^6.1.2",
     "pdf-lib": "^1.17.1"
   },

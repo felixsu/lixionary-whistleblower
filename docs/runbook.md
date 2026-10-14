@@ -2,9 +2,9 @@
 
 ## Production installation
 
-Use a dedicated Docker VPS with Node 24+, Docker Compose, native restic, SSH, encrypted disks, and at least 6 GB available RAM (8 GB recommended for concurrent conversion and antivirus). Open only ports 80/443 publicly; keep PostgreSQL, Redis, converter, scanner and service internals private. Do not enable request-body, cookie, query-string or destination logging in a CDN, host proxy, APM or provider integration.
+Use a dedicated Docker VPS with Node 24+, Docker Compose, native restic, SSH, encrypted disks, and at least 4 GB available RAM for the application and document conversion; monitor actual usage on shared hosts. Open only ports 80/443 publicly; keep PostgreSQL, converter and service internals private. Do not enable request-body, cookie, query-string or destination logging in a CDN, host proxy, APM or provider integration.
 
-The backend listens on 9550 and the frontend on 9551. Compose publishes these ports, and the case database on 9552, exclusively on `127.0.0.1`; PostgreSQL continues to listen on 5432 inside its isolated network. The private identity database has no host mapping. Public HTTPS continues through Caddy on 443. Use an SSH tunnel when accessing the backend or database remotely. Restore drills automatically include `deploy/compose.restore.yml` to remove published ports; keep that override included when operating a restored project. This requires Docker Compose 2.24.4 or later.
+The backend listens on 9550 and the frontend on 9551. Compose publishes these ports, and the case database on 9552, exclusively on `127.0.0.1`; PostgreSQL continues to listen on 5432 inside its isolated network. The private identity database has no host mapping. System nginx terminates public HTTPS on 443; Certbot manages certificate renewal. Use an SSH tunnel when accessing the backend or database remotely. Restore drills automatically include `deploy/compose.restore.yml` to remove published ports; keep that override included when operating a restored project. This requires Docker Compose 2.24.4 or later.
 
 1. Check out the intended `main` revision; keep `main-mvp` unchanged. Record `git rev-parse HEAD`. This is a fresh-suite installation, not an MVP migration.
 2. Generate protected file secrets:
@@ -19,10 +19,10 @@ The backend listens on 9550 and the frontend on 9551. Compose publishes these po
 5. Build and launch:
 
    ```sh
-   docker compose --env-file .suite-config/suite.env --profile production up --build -d
+   docker compose --env-file .suite-config/suite.env up --build -d
    ```
 
-   Caddy terminates TLS, suppresses access logs, blocks `/internal/*`, and supplies browser security headers. Runtime services trust one proxy hop; do not add another proxy/CDN without revalidating forwarded-IP handling and all upstream logging. Scanner signatures must finish updating before its health check succeeds.
+   Install and validate native nginx and Certbot as described below before exposing this installation. nginx terminates TLS, suppresses access logs, blocks internal endpoints, and supplies browser security headers. Runtime services trust one proxy hop; do not add another proxy/CDN without revalidating forwarded-IP handling and all upstream logging.
 
 6. Bootstrap the first administrator, reading the password from stdin:
 
@@ -40,7 +40,7 @@ Build/test/scan exact release images in CI, record their digests with the revisi
 
 ## VPS with system nginx
 
-The configured target is `lixsu@lixionary.com`, checkout `/app/lixionary-whistleblower`, public URL `https://whistle-blower.lixionary.com`. Use native nginx and Certbot on this host. Start Compose **without** `--profile production`: that profile starts Caddy and would conflict with nginx's 80/443 listeners. The application environment must still set `SUITE_NODE_ENV=production` and the public HTTPS URL.
+The configured target is `lixsu@lixionary.com`, checkout `/app/lixionary-whistleblower`, public URL `https://whistle-blower.lixionary.com`. Use native nginx and Certbot on this host. Compose contains no public TLS proxy or production profile. The application environment must still set `SUITE_NODE_ENV=production` and the public HTTPS URL.
 
 ```sh
 cd /app/lixionary-whistleblower
@@ -70,11 +70,11 @@ sudo install -m 755 deploy/nginx/renew-whistle-blower.sh \
 sudo certbot renew --cert-name whistle-blower.lixionary.com --dry-run --no-random-sleep-on-renew
 ```
 
-The configuration forwards `/api/` directly to backend 9550 and other requests to frontend 9551, including the private API rewrite. nginx overwrites incoming forwarding headers; Next preserves that single client address for the private service. It disables access logging, buffering and caching, blocks internal endpoints, and sets security headers. Keep Certbot's renewal timer enabled and a deploy hook that tests/reloads nginx after renewal. Back up an existing site configuration before replacing it. The shared VPS needs capacity monitoring, especially for ClamAV and concurrent document conversion.
+The configuration forwards `/api/` directly to backend 9550 and other requests to frontend 9551, including the private API rewrite. nginx overwrites incoming forwarding headers; Next preserves that single client address for the private service. It disables access logging, buffering and caching, blocks internal endpoints, and sets security headers. Keep Certbot's renewal timer enabled and a deploy hook that tests/reloads nginx after renewal. Back up an existing site configuration before replacing it. The shared VPS needs capacity monitoring, especially for concurrent document conversion.
 
 Fresh production databases contain no test accounts, employee directory, or company setup. Bootstrap the administrator, enroll MFA, configure the teams/policy/retention, and supply real delivery and offsite-backup credentials before operational use.
 
-Keep `deploy/compose.vps.yml` included for this host. It assigns eight `/28` networks within `10.245.95.0/24`, avoiding the exhausted default Docker address pool without modifying other projects. Recheck host routes and Docker subnets before reusing the override elsewhere. Do not prune unrelated networks to make space.
+Keep `deploy/compose.vps.yml` included for this host. It assigns seven `/28` networks within `10.245.95.0/24`, avoiding the exhausted default Docker address pool without modifying other projects. Recheck host routes and Docker subnets before reusing the override elsewhere. Do not prune unrelated networks to make space.
 
 nginx proxy directives follow the [official proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html); certificate issuance and renewal use [Certbot's webroot workflow](https://eff-certbot.readthedocs.io/en/stable/using.html#webroot).
 
@@ -92,7 +92,9 @@ A VPS lock covers snapshotting, migration and activation. The script stops appli
 
 The portal is unavailable while the snapshot is created/copied and migrations run; allow a maintenance window based on data size and connection speed. Snapshots are limited to 60 GiB of plaintext per release. Allow disk space for the uploaded images, plaintext staging and encrypted snapshot in addition to the 8 GiB preflight minimum.
 
-Only application/migration images are updated by this script. Existing database, Redis, scanner, networks and volumes remain running; infrastructure upgrades use a separately reviewed procedure. Native nginx receives the checked-in site and renewal hook, then reloads after configuration validation. Existing certificates are reused. The script checks the running image IDs, audit chain, public HTTPS and both APIs. If migrations might have started, failure leaves recovery to the operator rather than restarting older binaries against a changed schema.
+The runtime consists of `web`, `case-api`, `privacy-api`, `converter`, `case-db`, and `private-db`. Migrate services are temporary; Mailpit is development-only. The script updates only application/migration images and leaves existing databases and retained networks/volumes unchanged. The one-time simplification transition permits only removal of ClamAV, both Redis services, the old privacy worker and unused Caddy configuration. Other infrastructure upgrades require a separate procedure.
+
+Before that transition, the script stops all old writers, exports live Redis counters with absolute expiry timestamps, and includes them in the authenticated encrypted snapshot. Each database migration imports only unexpired counters before APIs start. Subsequent releases preserve counters directly in database backups. The script removes only retired containers bearing this project's matching Compose labels after readiness/audit checks; legacy volumes remain available for recovery. Protected temporary counter files are deleted after successful import/activation. Native nginx receives the checked-in site and renewal hook, then reloads after configuration validation. Existing certificates are reused. The script checks the running image IDs, audit chain, public HTTPS and both APIs. If migrations might have started, failure leaves recovery to the operator rather than restarting older binaries against a changed schema.
 
 After a successful scripted release, include its active image override for manual operations:
 
@@ -127,7 +129,7 @@ unset zoho_key
 chmod 600 /app/lixionary-whistleblower/.suite-config/secrets/zoho_api_key
 ```
 
-The file must be owned by `lixsu`. Setup creates an empty placeholder for new installations and preserves existing values. Compose mounts this read-only secret only into the case API, private API and private worker; the converter, web, databases and migrate services do not receive it. Reporter addresses remain in the private service. Staff/admin interfaces expose no key or reporter address.
+The file must be owned by `lixsu`. Setup creates an empty placeholder for new installations and preserves existing values. Compose mounts this read-only secret only into the case API and private API; the converter, web, databases and migrate services do not receive it. Reporter addresses remain in the private service. Staff/admin interfaces expose no key or reporter address.
 
 From the development machine:
 
@@ -149,14 +151,14 @@ docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
   run -T --rm --no-deps case-api node dist/cli/email-test.js felix.soewito@lixionary.com
 docker compose -f docker-compose.yml -f deploy/compose.vps.yml \
   -f .suite-config/active-release.json --env-file .suite-config/suite.env \
-  run -T --rm --no-deps privacy-worker node dist/cli/email-test.js felix.soewito@lixionary.com
+  run -T --rm --no-deps privacy-api node dist/cli/email-test.js felix.soewito@lixionary.com
 ```
 
 The CLI sends no actual OTP, account token or report data, and only reports provider acceptance or a generic failure. Confirm receipt in the test inbox separately. These checks do not establish that every staff/reporter workflow has been exercised on production. Do not test using real reporter destinations or resend historical notifications.
 
 ## Access and secrets
 
-`case-api` receives the case keyring and case database credential, but no private vault key, database credential or volume. `privacy-api` and `privacy-worker` receive the private keyring/database/vault, but no case keyring or case database access. The converter receives neither database nor vault secrets, runs as UID 1000, and has only the internal conversion network and a disposable filesystem. Private operations require an Ed25519 capability and live reporter-session introspection; callbacks require time-bound HMAC signatures.
+`case-api` receives the case keyring and case database credential, but no private vault key, database credential or volume. `privacy-api` receives the private keyring/database/vault, but no case keyring or case database access. The converter receives neither database nor vault secrets, runs as UID 1000, and has only the internal conversion network and a disposable filesystem. Private operations require an Ed25519 capability and live reporter-session introspection; callbacks require time-bound HMAC signatures.
 
 Migrate services use database owners. Runtime roles are `wb_case` and `wb_private`; they do not own schemas. The case role cannot rewrite audit events or anchors. A small root entrypoint has `DAC_READ_SEARCH` to read owner-only Linux secret binds, then starts the actual application process as UID/GID 1000 without those capabilities. The entrypoint has no HTTP surface. Web and converter containers do not receive this capability. Restrict operator access to Docker and key files; application-role isolation does not conceal data from an operator controlling the host and both key stores.
 
@@ -164,9 +166,9 @@ Disable departing staff in administration and remove team memberships. This revo
 
 ## Monitoring and delivery incidents
 
-Poll public `/api/health` and `/privacy/health` for availability. Check Compose health, restarts, disk/inodes, PostgreSQL errors, Redis availability, scanner signature freshness, converter timeouts, backup age and restic integrity checks. Monitor administrator **Operations** for pending jobs, maximum attempts, private-service availability, evidence quarantine states and incomplete privacy deletions. Health alone does not prove delivery or fresh backups.
+Poll public `/api/health` and `/privacy/health` for availability. Check Compose health, restarts, disk/inodes, PostgreSQL errors, rate-limit table cleanup, converter timeouts, backup age and restic integrity checks. Monitor administrator **Operations** for pending jobs, maximum attempts, private-service availability, evidence quarantine states and incomplete privacy deletions. Health alone does not prove delivery or fresh backups.
 
-Jobs use durable database queues, leases, and bounded exponential backoff. A provider timeout may lead to duplicate generic delivery; it must not duplicate a message in the platform. OTP retries stop after expiry. Correct the provider/network configuration and let jobs resume. Never paste job payloads or destination values into tickets. Escalate jobs with increasing attempts or stale evidence/leases; check provider status and non-sensitive error codes. If Redis fails, abuse checks fail closed.
+Jobs use durable database queues, leases, and bounded exponential backoff. A provider timeout may lead to duplicate generic delivery; it must not duplicate a message in the platform. OTP retries stop after expiry. Correct the provider/network configuration and let jobs resume. Never paste job payloads or destination values into tickets. Escalate jobs with increasing attempts or stale evidence/leases; check provider status and non-sensitive error codes. Rate limits use atomic, fixed-window PostgreSQL counters in each domain database and survive API restarts. Database failures fail abuse checks closed. Private delivery/conversion/retention jobs run inside the privacy API with durable leases and retry behavior; its shutdown drains active work before closing the database connection.
 
 A suspected disclosure requires restricting public access, preserving relevant audit checkpoints/evidence under legal hold, revoking affected sessions and tokens, investigating host/provider logs safely, and rotating compromised keys. Obtain approved company incident contacts and notification rules before launch. Don't reveal reporter contact data to investigate a routine delivery failure.
 
@@ -231,3 +233,7 @@ Run `node dist/rekey.js` through the stopped privacy-api service's `compose run 
 ## Launch acceptance record
 
 Record the real target's TLS/DNS/firewall/log review, image digests/security scan, provider delivery/outage checks, team/MFA configuration, approved retention/provider policies, encrypted disk/key access, backup schedule/age, restored DB/file/key readability, deletion/hold replay, and incident ownership. Local tests supply implementation evidence; this record supplies production evidence. The suite does not claim legal certification or guaranteed anonymity from identifying narrative or privileged infrastructure operators.
+
+## Evidence without antivirus
+
+ClamAV is no longer installed and new uploads have no malware-signature scan. Images, PDF, Word, Excel and PowerPoint retain magic-byte validation, size/page limits, isolated conversion, metadata removal, permanent redaction and reporter approval. The converter has no database credentials or vault keys. Originals remain sealed; staff only receive approved sanitized derivatives. Pending evidence is displayed as Processing; successful work emits `evidence_processed`. Historical `evidence_scanned` events and scan metadata remain intact, but new uploads do not populate antivirus fields.

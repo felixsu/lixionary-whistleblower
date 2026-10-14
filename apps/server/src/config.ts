@@ -25,7 +25,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     signingKey: secret("CAPABILITY_PRIVATE_KEY", env),
     eventKey: secret("SERVICE_EVENT_KEY", env),
     privacyUrl: env.PRIVACY_ORIGIN ?? "http://127.0.0.1:6405",
-    redisUrl: secret("REDIS_URL", env),
     abuseKey: secret("ABUSE_KEY", env),
     trustProxy:
       env.TRUST_PROXY === "1"

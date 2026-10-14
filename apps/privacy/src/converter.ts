@@ -6,6 +6,7 @@ app.addContentTypeParser(
   { parseAs: "buffer" },
   (_req, body, done) => done(null, body),
 );
+app.get("/health", async () => ({ ok: true }));
 app.post("/convert", async (req, reply) => {
   try {
     const result = await transform(req.body as Buffer);

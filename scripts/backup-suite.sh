@@ -14,9 +14,9 @@ compose=(docker compose --env-file "$env_file")
 if [[ -f "$config_dir/active-release.json" ]]; then
   compose=(docker compose -f docker-compose.yml -f deploy/compose.vps.yml -f "$config_dir/active-release.json" --env-file "$env_file")
 fi
-restart_services(){ "${compose[@]}" start case-api privacy-api privacy-worker web >/dev/null; }
+restart_services(){ "${compose[@]}" start case-api privacy-api web >/dev/null; }
 trap 'restart_services; find "$staging" -type f -delete; rmdir "$staging" 2>/dev/null || true' EXIT
-"${compose[@]}" stop web case-api privacy-api privacy-worker >/dev/null
+"${compose[@]}" stop web case-api privacy-api >/dev/null
 "${compose[@]}" run --rm --no-deps case-migrate node dist/cli/audit.js checkpoint - > "$staging/checkpoint.json"
 "${compose[@]}" exec -T case-db pg_dump -U postgres -Fc suite_cases > "$staging/cases.dump"
 "${compose[@]}" exec -T private-db pg_dump -U postgres -Fc suite_privacy > "$staging/privacy.dump"

@@ -20,7 +20,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     webUrl: env.PUBLIC_WEB_URL ?? "http://localhost:9551",
     caseUrl: env.CASE_ORIGIN ?? "http://localhost:9550",
     dbUrl: get("PRIVACY_DATABASE_URL", env),
-    redisUrl: get("PRIVACY_REDIS_URL", env),
     keys: parseKeyring(get("VAULT_KEYRING", env)),
     publicKey: get("CAPABILITY_PUBLIC_KEY", env),
     eventKey: get("SERVICE_EVENT_KEY", env),
@@ -30,7 +29,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       env.TRUST_PROXY === "1"
         ? (_address: string, hop: number) => hop === 0
         : false,
-    scanner: env.CLAMDSCAN_BIN ?? "clamdscan",
     email: loadEmailConfig("PRIVACY", env),
     twilio: {
       sid: get("TWILIO_ACCOUNT_SID", env, false),

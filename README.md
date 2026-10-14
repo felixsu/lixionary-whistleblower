@@ -10,7 +10,7 @@ Creating a report requires an email registered and active in the employee direct
 
 ## Run locally
 
-Requirements: Node 24+, pnpm 11.9, Docker Compose, and enough Docker memory for PostgreSQL, ClamAV, and document conversion (allow at least 6 GB).
+Requirements: Node 24+, pnpm 11.9, Docker Compose, and enough Docker memory for PostgreSQL and document conversion (allow at least 4 GB for local Docker).
 
 ```sh
 pnpm install --frozen-lockfile
@@ -18,7 +18,7 @@ pnpm suite:setup
 pnpm suite:dev
 ```
 
-Open the portal at <http://localhost:9551> and the development mailbox at <http://localhost:6403>. The backend is available at `127.0.0.1:9550`; the case database at `127.0.0.1:9552` maps to PostgreSQL's container port 5432. These host ports bind only to localhost. The separate identity database has no published port. The first scanner startup downloads antivirus signatures and can take several minutes. On ARM hosts, the scanner uses the official AMD64 image through Docker emulation.
+Open the portal at <http://localhost:9551> and the development mailbox at <http://localhost:6403>. The backend is available at `127.0.0.1:9550`; the case database at `127.0.0.1:9552` maps to PostgreSQL's container port 5432. These host ports bind only to localhost. The separate identity database has no published port. Production runs six containers: two databases, two APIs, the frontend, and an isolated converter. Private jobs run inside the privacy API; rate limits are durable PostgreSQL counters. Mailpit is development-only, and migration containers exit after provisioning.
 
 Create the first administrator only on an empty staff table:
 
@@ -44,11 +44,11 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 | Path               | Responsibility                                                                         |
 | ------------------ | -------------------------------------------------------------------------------------- |
 | `apps/server`      | Case API, staff MFA, authorization, workflow, audit, retention, durable case jobs      |
-| `apps/privacy`     | Private contacts and OTP, consented intake, sealed originals, scanning/conversion jobs |
+| `apps/privacy`     | Private contacts and OTP, consented intake, sealed originals, delivery/conversion jobs |
 | `apps/web`         | Next.js reporting, private mailbox, staff and administration screens                   |
 | `packages/shared`  | Shared schemas, roles, states, company settings                                        |
 | `packages/runtime` | Encryption, capabilities, hashing, rate limits, assistant adapter                      |
-| `deploy`           | Container entrypoint, proxy policy, scanner configuration                              |
+| `deploy`           | Container entrypoint, nginx proxy policy                                               |
 | `scripts`          | Secret setup, synthetic tests, key rotation, offsite backup and isolated restore       |
 
 ## Versioning

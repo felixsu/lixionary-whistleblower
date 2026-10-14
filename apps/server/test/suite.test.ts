@@ -5,6 +5,8 @@ import postgres from "postgres";
 import { sql } from "drizzle-orm";
 import { generate } from "otplib";
 import {
+  postgresLimiter,
+  importRateLimits,
   hashSecret,
   seal,
   unseal,
@@ -199,7 +201,6 @@ beforeAll(async () => {
       .export({ type: "pkcs8", format: "pem" })
       .toString(),
     SERVICE_EVENT_KEY: shared,
-    REDIS_URL: "redis://localhost:6379",
     ABUSE_KEY: shared,
   });
   app = await buildApp({ db: caseStore.db, config: cfg, limiter });
@@ -215,7 +216,6 @@ beforeAll(async () => {
         .export({ type: "spki", format: "pem" })
         .toString(),
       SERVICE_EVENT_KEY: shared,
-      PRIVACY_REDIS_URL: "redis://localhost:6379",
       PRIVACY_ABUSE_KEY: shared,
       PRIVACY_STORAGE: new URL(
         "../../../.suite-dev/test-files",
@@ -2092,5 +2092,87 @@ describe("suite privacy and workflow boundaries", () => {
     await expect(
       rows(caseStore.db, sql`delete from audit_events`),
     ).rejects.toThrow();
+  });
+  it("preserves atomic fixed-window limits across concurrency and limiter restarts", async () => {
+    const key = randomUUID(),
+      make = () => postgresLimiter((q) => caseStore.db.execute(q));
+    const results = await Promise.all(
+      Array.from({ length: 60 }, () => make().hit(key, 12, 3600)),
+    );
+    expect(results.filter(Boolean)).toHaveLength(12);
+    const [before] = await rows(
+      caseStore.db,
+      sql`select * from rate_limits where key=${"limit:" + key}`,
+    );
+    expect(Number(before!.hits)).toBe(60);
+    expect(await make().hit(key, 12, 3600)).toBe(false);
+    const [after] = await rows(
+      caseStore.db,
+      sql`select * from rate_limits where key=${"limit:" + key}`,
+    );
+    expect(after!.expires_at).toEqual(before!.expires_at);
+    await rows(
+      caseStore.db,
+      sql`update rate_limits set expires_at=now()-interval '1 second' where key=${"limit:" + key}`,
+    );
+    expect(await make().hit(key, 12, 3600)).toBe(true);
+    const [reset] = await rows(
+      caseStore.db,
+      sql`select hits from rate_limits where key=${"limit:" + key}`,
+    );
+    expect(Number(reset!.hits)).toBe(1);
+  });
+  it("imports live counters, skips expired buckets, and keeps domains isolated", async () => {
+    const key = randomUUID(),
+      old = randomUUID(),
+      expires = new Date(Date.now() + 3600000).toISOString();
+    const data = [
+      { key: "limit:" + key, hits: 5, expires_at: expires },
+      {
+        key: "limit:" + old,
+        hits: 7,
+        expires_at: new Date(Date.now() - 1000).toISOString(),
+      },
+    ];
+    await importRateLimits((q) => caseStore.db.execute(q), data);
+    await importRateLimits((q) => caseStore.db.execute(q), data);
+    expect(
+      await postgresLimiter((q) => caseStore.db.execute(q)).hit(key, 5, 3600),
+    ).toBe(false);
+    expect(
+      await postgresLimiter((q) => vault.db.execute(q)).hit(key, 5, 3600),
+    ).toBe(true);
+    expect(
+      await rows(
+        caseStore.db,
+        sql`select * from rate_limits where key=${"limit:" + old}`,
+      ),
+    ).toHaveLength(0);
+    await importRateLimits((q) => caseStore.db.execute(q), data);
+    const [bucket] = await rows(
+      caseStore.db,
+      sql`select * from rate_limits where key=${"limit:" + key}`,
+    );
+    expect(Number(bucket!.hits)).toBe(6);
+    expect(new Date(String(bucket!.expires_at)).toISOString()).toBe(expires);
+    await expect(
+      importRateLimits((q) => caseStore.db.execute(q), [...data, data[0]]),
+    ).rejects.toThrow();
+    await expect(
+      postgresLimiter(async () => {
+        throw new Error("database unavailable");
+      }).hit(key, 5, 60),
+    ).rejects.toThrow();
+  });
+  it("cleans expired rate limits even before company setup", async () => {
+    const key = "limit:" + randomUUID();
+    await rows(
+      caseStore.db,
+      sql`insert into rate_limits values(${key},1,now()-interval '1 second')`,
+    );
+    await expire(caseStore.db);
+    expect(
+      await rows(caseStore.db, sql`select * from rate_limits where key=${key}`),
+    ).toHaveLength(0);
   });
 });

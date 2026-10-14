@@ -132,6 +132,7 @@ export function startJobs(
   };
 }
 export async function expire(db: Db) {
+  await rows(db, sql`delete from rate_limits where expires_at<=now()`);
   const s = await settings(db);
   if (!s.configured || !s.body.retention) return;
   const overdue = await rows(

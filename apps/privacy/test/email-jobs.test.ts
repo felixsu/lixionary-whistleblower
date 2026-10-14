@@ -16,13 +16,13 @@ async function exercise(
   rejected: boolean,
   kind = "otp",
   superseded = false,
+  drain = false,
 ) {
   vi.useFakeTimers();
   const keys = { active: "a", keys: { a: randomBytes(32).toString("base64") } };
   const config = loadConfig({
     NODE_ENV: "test",
     PRIVACY_DATABASE_URL: "unused",
-    PRIVACY_REDIS_URL: "unused",
     VAULT_KEYRING: JSON.stringify(keys),
     CAPABILITY_PUBLIC_KEY: "unused",
     SERVICE_EVENT_KEY: "unused",
@@ -69,18 +69,35 @@ async function exercise(
       return [];
     },
   } as unknown as Db;
-  const fetch = vi
-    .fn()
-    .mockResolvedValue(
-      new Response(
-        rejected ? "provider failure" : '{"data":[{"code":"EM_104"}]}',
-        { status: rejected ? 503 : 200 },
-      ),
-    );
+  let release: (response: Response) => void = () => {};
+  const response = new Response(
+    rejected ? "provider failure" : '{"data":[{"code":"EM_104"}]}',
+    { status: rejected ? 503 : 200 },
+  );
+  const fetch = vi.fn().mockImplementation(() =>
+    drain
+      ? new Promise<Response>((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve(response),
+  );
   vi.stubGlobal("fetch", fetch);
   const log = { error: vi.fn() };
   const stop = startJobs(db, config, log);
   try {
+    if (drain) {
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      let completed = false;
+      const drained = stop().then(() => {
+        completed = true;
+      });
+      await Promise.resolve();
+      expect(completed).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      release(response);
+      await drained;
+      expect(completed).toBe(true);
+    }
     await vi.waitFor(() => expect(sent || retry).toBe(true));
     expect(sent).toBe(!rejected || expired || superseded);
     expect(retry).toBe(rejected && !expired && !superseded);
@@ -90,7 +107,7 @@ async function exercise(
     );
     expect(JSON.stringify(log.error.mock.calls)).not.toContain(body.code);
   } finally {
-    stop();
+    await stop();
   }
 }
 it("private worker marks accepted Zoho OTP delivery sent", () =>
@@ -108,3 +125,6 @@ it("discards superseded admission OTPs", () =>
   exercise(false, false, "admission_otp", true));
 it("discards expired admission OTPs", () =>
   exercise(true, false, "admission_otp"));
+
+it("drains an active delivery before completing private job shutdown", () =>
+  exercise(false, false, "otp", false, true));
