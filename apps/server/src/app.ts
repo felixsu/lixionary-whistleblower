@@ -12,6 +12,8 @@ import { reporterRoutes } from "./routes/reporter.js";
 import { caseRoutes } from "./routes/cases.js";
 import { adminRoutes } from "./routes/admin.js";
 import { internalRoutes } from "./routes/internal.js";
+import { jiraRoutes } from "./routes/jira.js";
+import type { JiraClient } from "./jira.js";
 export interface Limiter {
   hit(key: string, max: number, seconds: number): Promise<boolean>;
 }
@@ -20,6 +22,7 @@ export interface AppDeps {
   config: Config;
   limiter: Limiter;
   google?: GoogleProvider;
+  jira?: JiraClient;
 }
 declare module "fastify" {
   interface FastifyInstance {
@@ -80,6 +83,7 @@ export async function buildApp(deps: AppDeps) {
   await app.register(reporterRoutes, { prefix: "/api/reporter" });
   await app.register(caseRoutes, { prefix: "/api/cases" });
   await app.register(adminRoutes, { prefix: "/api/admin" });
+  await app.register(jiraRoutes, { prefix: "/api/admin/jira" });
   await app.register(internalRoutes, { prefix: "/internal" });
   return app;
 }

@@ -17,6 +17,7 @@ export function safeStaffReturn(value: string | null): string {
         "/staff/admin/teams",
         "/staff/admin/settings",
         "/staff/admin/operations",
+        "/staff/admin/development-tracker",
         "/staff/admin/audit",
         "/staff/admin/settings/history",
         "/staff/admin/staff",

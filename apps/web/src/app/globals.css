@@ -984,3 +984,56 @@ textarea {
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
+/* Administrator development tracker */
+.jira-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.jira-privacy {
+  max-width: 72ch;
+}
+.jira-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(14rem, 1fr));
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+}
+.jira-column {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+.jira-column h2 {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 1rem;
+}
+.jira-column ul {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.jira-column li {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.jira-column li p {
+  margin: 0.5rem 0;
+}
+.jira-key,
+.jira-total {
+  font-family: var(--font-jetbrains), monospace;
+}
+.jira-total {
+  font-size: 0.875rem;
+}

@@ -53,9 +53,15 @@ Production email supports Zoho CPaaS HTTP delivery for both staff and reporters.
 | `deploy`           | Container entrypoint, nginx proxy policy                                               |
 | `scripts`          | Secret setup, synthetic tests, key rotation, offsite backup and isolated restore       |
 
+## Administrator development tracker
+
+Administrators can open **Administration → Development Tracker** at `/staff/admin/development-tracker` to report software errors, request features, and view the LWB board. Reports open Jira’s own form in a popup; an administrator does not need a Jira account. Jira records the submitting administrator’s staff ID and name under the application’s service account. The app sends no case data or employee directory information automatically. Exclude confidential information from manually written reports and attachments.
+
+The tracker is disabled until configured. See [Jira configuration](docs/runbook.md#jira-development-tracker) for service-account grants, credentials, and allowed origins.
+
 ## Versioning
 
-The root `package.json` is the release-version source of truth. All workspace packages share version `0.5.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.6.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
 
 ```sh
 pnpm version:check          # Validate every workspace package

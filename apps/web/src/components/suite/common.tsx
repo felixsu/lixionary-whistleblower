@@ -6,6 +6,41 @@ import { ShieldCheck } from "lucide-react";
 import { BuildSignature } from "@/components/build-signature";
 import { api, ApiError } from "@/lib/api";
 export const strings = {
+  developmentTracker: ["Development Tracker", "Pelacak Pengembangan"],
+  jiraIntro: [
+    "Report software errors, request features, and follow development in LWB on Lixionary Jira.",
+    "Laporkan kesalahan aplikasi, ajukan fitur, dan ikuti pengembangan LWB di Lixionary Jira.",
+  ],
+  jiraPrivacy: [
+    "Use this page for application feedback. Exclude confidential case details and employee information from reports and attachments.",
+    "Gunakan halaman ini untuk masukan aplikasi. Jangan sertakan detail kasus rahasia atau informasi karyawan dalam laporan dan lampiran.",
+  ],
+  refreshBoard: ["Refresh board", "Muat ulang papan"],
+  jiraReportActions: ["Report to Jira", "Laporkan ke Jira"],
+  jiraReportError: ["Report an error", "Laporkan kesalahan"],
+  jiraRequestFeature: ["Request a feature", "Ajukan fitur"],
+  jiraOpening: ["Opening Jira…", "Membuka Jira…"],
+  jiraPopupBlocked: [
+    "Allow pop-ups for this site, then try again.",
+    "Izinkan pop-up untuk situs ini, lalu coba lagi.",
+  ],
+  jiraSubmitted: ["Submitted to Jira:", "Dikirim ke Jira:"],
+  jiraDisabled: [
+    "The development tracker is not configured yet.",
+    "Pelacak pengembangan belum dikonfigurasi.",
+  ],
+  jiraBoard: ["LWB development board", "Papan pengembangan LWB"],
+  jira_pending: ["Pending", "Menunggu"],
+  jira_todo: ["To do", "Akan dikerjakan"],
+  jira_in_progress: ["In progress", "Sedang dikerjakan"],
+  jira_pending_release: ["Pending release", "Menunggu rilis"],
+  jira_closed: ["Closed", "Ditutup"],
+  jiraIssue: ["Error report", "Laporan kesalahan"],
+  jiraFeature: ["Feature request", "Permintaan fitur"],
+  jiraDone: ["Done", "Selesai"],
+  jiraRejected: ["Rejected", "Ditolak"],
+  jiraEmpty: ["No tickets here.", "Belum ada tiket."],
+  jiraLoadMore: ["Load more", "Muat lainnya"],
   skip: ["Skip to content", "Langsung ke konten"],
   navigation: ["Main navigation", "Navigasi utama"],
   confidential: ["Confidential reporting", "Pelaporan rahasia"],
@@ -487,6 +522,14 @@ export function ErrorBox({ error }: { error: string }) {
   ) : null;
 }
 const errors: Record<string, [string, string]> = {
+  jira_disabled: [
+    "The development tracker is not configured yet.",
+    "Pelacak pengembangan belum dikonfigurasi.",
+  ],
+  jira_unavailable: [
+    "Lixionary Jira is unavailable. Please try again.",
+    "Lixionary Jira tidak tersedia. Silakan coba lagi.",
+  ],
   staff_exists: [
     "A user with this email already exists.",
     "Pengguna dengan email ini sudah ada.",

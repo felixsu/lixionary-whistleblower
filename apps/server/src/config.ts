@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseKeyring, loadEmailConfig } from "@whistle/runtime";
+import { loadJiraConfig } from "./jira-config.js";
 export function secret(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -26,6 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     port: Number(env.PORT ?? 9550),
     host: env.HOST ?? "127.0.0.1",
     webUrl,
+    jira: loadJiraConfig(env, webUrl),
     google: googleClientId
       ? {
           clientId: googleClientId,

@@ -7,6 +7,7 @@ import {
   ScrollText,
   Activity,
   UserRound,
+  Kanban,
 } from "lucide-react";
 import type { StaffRole } from "@whistle/shared";
 export const staffNavigation = [
@@ -39,6 +40,12 @@ export const staffNavigation = [
     href: "/staff/admin/operations",
     key: "operations",
     icon: Activity,
+    roles: ["admin"],
+  },
+  {
+    href: "/staff/admin/development-tracker",
+    key: "developmentTracker",
+    icon: Kanban,
     roles: ["admin"],
   },
   {
