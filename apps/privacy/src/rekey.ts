@@ -13,11 +13,14 @@ try {
       ["admission_challenges", "email_enc", "admission-challenge"],
       ["contacts", "destination_enc", "contact"],
       ["intakes", "transcript_enc", "intake"],
+      ["intakes", "state_enc", "conversation"],
+      ["conversation_operations", "input_enc", "conversation-input"],
+      ["conversation_operations", "result_enc", "conversation-result"],
       ["delivery_jobs", "body_enc", "job"],
     ] as const) {
       for (const row of await rows(
         tx,
-        sql`select id,${sql.identifier(column)} value from ${sql.identifier(table)} for update`,
+        sql`select id,${sql.identifier(column)} value from ${sql.identifier(table)} where ${sql.identifier(column)} is not null for update`,
       ))
         await rows(
           tx,

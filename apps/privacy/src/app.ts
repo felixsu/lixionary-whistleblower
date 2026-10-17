@@ -1,4 +1,5 @@
 import { admissionRoutes } from "./admission.js";
+import { conversationRoutes } from "./conversation.js";
 import { intakeRoutes } from "./intake.js";
 import { randomUUID, randomInt, createHash } from "node:crypto";
 import Fastify from "fastify";
@@ -109,6 +110,11 @@ export async function buildApp(deps: Dependencies) {
       api.addHook("preHandler", async (req) => {
         const destructive =
           (req.method === "DELETE" &&
+            [
+              "/privacy/reporter/conversation",
+              "/privacy/reporter/conversation/draft",
+            ].includes(req.url)) ||
+          (req.method === "DELETE" &&
             /^\/privacy\/reporter\/(contacts|files)\/[a-f0-9-]+$/.test(
               req.url,
             )) ||
@@ -139,6 +145,7 @@ export async function buildApp(deps: Dependencies) {
             );
           }
       });
+      api.register(conversationRoutes);
       api.get("/contacts", async (req) => ({
         contacts: (
           await rows(
@@ -578,6 +585,7 @@ export async function buildApp(deps: Dependencies) {
       );
       for (const f of files) await removeFiles(config, String(f.id));
       for (const table of [
+        "conversation_usage",
         "admission_grants",
         "contacts",
         "files",

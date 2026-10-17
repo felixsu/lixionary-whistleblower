@@ -68,6 +68,8 @@ export const strings = {
   who: ["Who was involved?", "Siapa yang terlibat?"],
   when: ["When did it happen?", "Kapan kejadian terjadi?"],
   where: ["Where did it happen?", "Di mana kejadian terjadi?"],
+  why: ["Why did it happen, if known?", "Mengapa terjadi, jika diketahui?"],
+  how: ["How did it happen?", "Bagaimana kejadiannya?"],
   howKnown: ["How do you know?", "Bagaimana Anda mengetahuinya?"],
   impact: ["Impact or harm", "Dampak atau kerugian"],
   ongoing: ["Is it ongoing?", "Apakah masih berlangsung?"],
@@ -198,10 +200,14 @@ export const strings = {
     "Statistik agregat (kelompok di bawah lima disembunyikan)",
   ],
   refresh: ["Refresh", "Muat ulang"],
+  investigatorMessages: [
+    "Messages with investigators",
+    "Pesan dengan penyelidik",
+  ],
   ai: ["Use optional assisted intake", "Gunakan panduan AI opsional"],
   aiConsent: [
-    "I consent to MiniMax processing this private conversation. I will review the draft before submission.",
-    "Saya menyetujui pemrosesan percakapan pribadi ini oleh MiniMax. Saya akan meninjau draf sebelum mengirim.",
+    "I consent to MiniMax processing my submitted report and private follow-up conversation. I will review updates before sharing them with investigators.",
+    "Saya menyetujui MiniMax memproses laporan terkirim dan percakapan tindak lanjut pribadi saya. Saya akan meninjau pembaruan sebelum membagikannya kepada penyelidik.",
   ],
   draft: ["Create an editable draft", "Buat draf yang dapat diedit"],
   withdraw: [
@@ -560,9 +566,25 @@ const errors: Record<string, [string, string]> = {
     "This verification already started an AI conversation. Continue with your report form.",
     "Verifikasi ini sudah memulai percakapan AI. Lanjutkan dengan formulir laporan.",
   ],
+  ai_unavailable: [
+    "The assistant is unavailable. Your message is saved. Use Retry to continue.",
+    "Asisten tidak tersedia. Pesan Anda tersimpan. Gunakan Coba lagi untuk melanjutkan.",
+  ],
+  conversation_busy: [
+    "The assistant is working on a reply. Please wait.",
+    "Asisten sedang menyiapkan balasan. Silakan tunggu.",
+  ],
+  conversation_retry_required: [
+    "Retry the saved message before sending another.",
+    "Coba lagi pesan tersimpan sebelum mengirim pesan lain.",
+  ],
+  message_conflict: [
+    "This update was already sent with different content. Refresh and review the case messages.",
+    "Pembaruan ini sudah dikirim dengan isi berbeda. Muat ulang dan tinjau pesan laporan.",
+  ],
   conversation_limit: [
-    "The AI usage limit for this report has been reached. Continue with the report form.",
-    "Batas penggunaan AI untuk laporan ini tercapai. Lanjutkan dengan formulir laporan.",
+    "Today’s AI allowance has been reached. Your conversation is saved; continue after the UTC daily reset.",
+    "Batas AI hari ini tercapai. Percakapan tersimpan; lanjutkan setelah pergantian hari UTC.",
   ],
   policy_changed: [
     "The company policy changed. Review it again before continuing; your report text is kept on this page.",

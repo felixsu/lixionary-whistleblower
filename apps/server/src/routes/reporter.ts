@@ -9,6 +9,7 @@ import {
   token,
   digest,
   seal,
+  unseal,
   mac,
 } from "@whistle/runtime";
 import { rows } from "../db/client.js";
@@ -132,13 +133,16 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
         reportToken: String(req.headers["x-report-access"] ?? ""),
         submissionHash: submissionHash!,
         caseId: id,
+        aiConsent: v.aiConsent,
+        policyVersion: v.policyVersion,
+        locale: v.locale,
         ...(v.intakeId
           ? { intakeId: v.intakeId, intakeToken: v.intakeToken }
           : {}),
       });
       const [r] = await rows<CaseRow>(
         tx,
-        sql`insert into cases(id,case_code,pin_hash,recovery_hash,submission_hash,content_enc,category,sensitive,team_id) values(${id},${code()},${await hashSecret(pin)},${await hashSecret(recoveryCode)},${submissionHash},${seal({ ...v, intakeId: undefined, intakeToken: undefined }, config.keys, "case:" + id)},${v.category},${v.sensitive},${v.sensitive ? s.body.restrictedTeamId : s.body.defaultTeamId}) returning *`,
+        sql`insert into cases(id,case_code,pin_hash,recovery_hash,submission_hash,content_enc,category,sensitive,team_id) values(${id},${code()},${await hashSecret(pin)},${await hashSecret(recoveryCode)},${submissionHash},${seal({ ...v, aiConsent: undefined, intakeId: undefined, intakeToken: undefined }, config.keys, "case:" + id)},${v.category},${v.sensitive},${v.sensitive ? s.body.restrictedTeamId : s.body.defaultTeamId}) returning *`,
       );
       await audit(tx, "reporter", "report_submitted", id, {
         policyVersion: s.version,
@@ -191,8 +195,9 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
     capability: reporterCapability(req, req.reporter!, req.reporterSessionId!),
   }));
   app.post("/messages", { preHandler: requireReporter }, async (req, reply) => {
-    const { body } = z
+    const { body, clientMessageId } = z
       .object({
+        clientMessageId: z.uuid().optional(),
         body: z.string().trim().min(1).max(10000),
         privacyReviewed: z.literal(true),
       })
@@ -203,11 +208,32 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
         tx,
         sql`select state from cases where id=${req.reporter!.id} for update`,
       );
+      if (clientMessageId) {
+        const [existing] = await rows(
+          tx,
+          sql`select body_enc,id from case_messages where case_id=${req.reporter!.id} and client_message_id=${clientMessageId}`,
+        );
+        if (existing) {
+          if (
+            unseal<string>(
+              String(existing.body_enc),
+              config.keys,
+              "message:" + existing.id,
+            ) !== body
+          )
+            throw new HttpError(
+              409,
+              "Retry content changed",
+              "message_conflict",
+            );
+          return;
+        }
+      }
       if (c!.state === "closed")
         throw new HttpError(409, "Case closed", "case_closed");
       await rows(
         tx,
-        sql`insert into case_messages(id,case_id,author,body_enc) values(${id},${req.reporter!.id},'reporter',${seal(body, config.keys, "message:" + id)})`,
+        sql`insert into case_messages(id,case_id,author,body_enc,client_message_id) values(${id},${req.reporter!.id},'reporter',${seal(body, config.keys, "message:" + id)},${clientMessageId ?? null})`,
       );
       await rows(
         tx,

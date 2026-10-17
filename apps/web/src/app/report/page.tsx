@@ -68,10 +68,7 @@ export default function Report() {
     [sensitive, setSensitive] = useState(false),
     [review, setReview] = useState(false),
     [policy, setPolicy] = useState(false);
-  const [aiConsent, setAiConsent] = useState(false),
-    [intake, setIntake] = useState<{ id: string; token: string }>(),
-    [chat, setChat] = useState<{ role: string; body: string }[]>([]),
-    [answer, setAnswer] = useState("");
+  const [aiConsent, setAiConsent] = useState(false);
   useEffect(() => {
     void api<Company>("/api/reporter/company")
       .then((c) => {
@@ -80,12 +77,6 @@ export default function Report() {
       })
       .catch((e) => a.setError(String(e)));
   }, []);
-  const aiCall = <T,>(path: string, body?: unknown) =>
-    reportApi<T>(`/privacy/intake/${intake!.id}/${path}`, {
-      method: "POST",
-      body,
-      headers: { Authorization: `Bearer ${intake!.token}` },
-    });
   return (
     <Shell language={l}>
       <ErrorBox error={a.error} />
@@ -146,118 +137,6 @@ export default function Report() {
               onChange={(e) => setPolicy(e.target.checked)}
             />
           </section>
-          {company.aiEnabled && (
-            <section>
-              <h2>{t("ai")}</h2>
-              {!intake ? (
-                <>
-                  <Check
-                    label={t("aiConsent")}
-                    checked={aiConsent}
-                    onChange={(e) => setAiConsent(e.target.checked)}
-                  />
-                  <button
-                    disabled={!aiConsent || a.busy || !policy}
-                    onClick={() =>
-                      void a.run(async () => {
-                        setIntake(
-                          await reportApi("/privacy/intake", {
-                            method: "POST",
-                            body: {
-                              consent: true,
-                              policyVersion: company.version,
-                              locale: lang,
-                            },
-                          }),
-                        );
-                      })
-                    }
-                  >
-                    {t("ai")}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div aria-live="polite">
-                    {chat.map((m, i) => (
-                      <p key={i}>
-                        <strong>{m.role === "user" ? t("body") : "AI"}:</strong>{" "}
-                        {m.body}
-                      </p>
-                    ))}
-                  </div>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void a.run(async () => {
-                        const { answer: reply } = await aiCall<{
-                          answer: string;
-                        }>("messages", { body: answer });
-                        setChat([
-                          ...chat,
-                          { role: "user", body: answer },
-                          { role: "assistant", body: reply },
-                        ]);
-                        setAnswer("");
-                      });
-                    }}
-                  >
-                    <Text
-                      label={t("body")}
-                      required
-                      maxLength={5000}
-                      value={answer}
-                      onChange={(e) => setAnswer(e.target.value)}
-                    />
-                    <button disabled={a.busy}>{t("send")}</button>
-                  </form>
-                  <button
-                    disabled={a.busy || !chat.length}
-                    onClick={() =>
-                      void a.run(async () => {
-                        const r = await aiCall<{
-                          draft: {
-                            title: string;
-                            summary: string;
-                            category: string | null;
-                            details: Record<string, string>;
-                          };
-                        }>("draft", {});
-                        setTitle(r.draft.title);
-                        setSummary(r.draft.summary);
-                        setDetails(r.draft.details ?? {});
-                        if (
-                          company.categories.some(
-                            (c) => c.key === r.draft.category,
-                          )
-                        )
-                          setCategory(r.draft.category!);
-                        setReview(false);
-                      })
-                    }
-                  >
-                    {t("draft")}
-                  </button>
-                  <button
-                    disabled={a.busy}
-                    onClick={() =>
-                      void a.run(async () => {
-                        await reportApi(`/privacy/intake/${intake.id}`, {
-                          method: "DELETE",
-                          headers: { Authorization: `Bearer ${intake.token}` },
-                        });
-                        setIntake(undefined);
-                        setChat([]);
-                        setAiConsent(false);
-                      })
-                    }
-                  >
-                    {t("withdraw")}
-                  </button>
-                </>
-              )}
-            </section>
-          )}
           <section>
             <form
               onSubmit={(e) => {
@@ -285,9 +164,7 @@ export default function Report() {
                       locale: lang,
                       privacyReviewed: true,
                       policyVersion: company.version,
-                      ...(intake
-                        ? { intakeId: intake.id, intakeToken: intake.token }
-                        : {}),
+                      aiConsent,
                     },
                   }).catch(async (e) => {
                     if (e instanceof ApiError && e.code === "policy_changed") {
@@ -311,12 +188,9 @@ export default function Report() {
                   setTitle("");
                   setSummary("");
                   setDetails({});
-                  setAnswer("");
                   setReview(false);
                   setPolicy(false);
                   setAiConsent(false);
-                  setChat([]);
-                  setIntake(undefined);
                 });
               }}
             >
@@ -353,6 +227,8 @@ export default function Report() {
                   "who",
                   "when",
                   "where",
+                  "why",
+                  "how",
                   "howKnown",
                   "evidence",
                   "impact",
@@ -398,6 +274,13 @@ export default function Report() {
                 checked={sensitive}
                 onChange={(e) => setSensitive(e.target.checked)}
               />
+              {company.aiEnabled && (
+                <Check
+                  label={t("aiConsent")}
+                  checked={aiConsent}
+                  onChange={(e) => setAiConsent(e.target.checked)}
+                />
+              )}
               <p>{t("privacy")}</p>
               <Check
                 label={t("review")}

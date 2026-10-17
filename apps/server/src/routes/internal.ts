@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { equal, mac } from "@whistle/runtime";
+import { equal, mac, unseal } from "@whistle/runtime";
 import { rows } from "../db/client.js";
 import { audit, settings } from "../service.js";
 import { HttpError } from "../lib/errors.js";
@@ -61,6 +61,28 @@ export async function internalRoutes(app: FastifyInstance) {
       state: c?.state ?? null,
       settings: s.body,
       policyVersion: s.version,
+    };
+  });
+  app.post("/conversation-context", async (req) => {
+    const v = z
+      .object({ caseId: z.uuid(), sid: z.uuid(), version: z.number().int() })
+      .parse(req.body);
+    const [c] = await rows(
+      db,
+      sql`select c.content_enc,c.id from reporter_sessions s join cases c on c.id=s.case_id where s.id=${v.sid} and c.id=${v.caseId} and c.secret_version=${v.version} and s.secret_version=c.secret_version and s.expires_at>now() and s.last_seen_at>now()-interval '30 minutes'`,
+    );
+    if (!c) throw new HttpError(401, "Unauthorized", "unauthorized");
+    const content = unseal<{
+      title: string;
+      summary: string;
+      details: Record<string, string>;
+      locale: string;
+    }>(String(c.content_enc), config.keys, "case:" + c.id);
+    return {
+      title: content.title,
+      summary: content.summary,
+      details: content.details,
+      locale: content.locale,
     };
   });
   app.post("/case-exists", async (req) => {

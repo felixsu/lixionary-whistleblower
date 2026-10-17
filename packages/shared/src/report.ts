@@ -40,6 +40,8 @@ export const reportDetailsSchema = z.object({
   who: text(2000).default(""),
   when: text(1000).default(""),
   where: text(1000).default(""),
+  why: text(5000).default(""),
+  how: text(5000).default(""),
   howKnown: text(2000).default(""),
   evidence: text(2000).default(""),
   impact: text(2000).default(""),
@@ -52,6 +54,8 @@ export const DETAIL_LABELS: Record<keyof ReportDetails, string> = {
   who: "Who was involved",
   when: "When it happened",
   where: "Where it happened",
+  why: "Why it happened, if known",
+  how: "How it happened",
   howKnown: "How you know",
   evidence: "Evidence available",
   impact: "Impact or harm",
@@ -73,7 +77,10 @@ export const emptyDraft = (): ReportDraft => reportDraftSchema.parse({});
 export const finalReportSchema = reportDraftSchema.extend({
   category: reportCategorySchema,
   title: text(200).min(5, "Please give the report a short title"),
-  summary: text(5000).min(20, "Please describe what happened in a bit more detail"),
+  summary: text(5000).min(
+    20,
+    "Please describe what happened in a bit more detail",
+  ),
 });
 
 export const CONTACT_PREFERENCES = ["email", "phone", "either"] as const;
@@ -85,7 +92,9 @@ const phoneSchema = z
 
 export const contactSchema = z
   .object({
-    email: z.union([z.email("Enter a valid email address").max(254), z.literal("")]).default(""),
+    email: z
+      .union([z.email("Enter a valid email address").max(254), z.literal("")])
+      .default(""),
     phone: z.union([phoneSchema, z.literal("")]).default(""),
     preference: z.enum(CONTACT_PREFERENCES).default("either"),
   })
@@ -112,7 +121,8 @@ export interface SubmitReportResponse {
 
 /** Case codes look like WB-7K3M-9QXP (Crockford base32, no I/L/O/U). */
 export const CASE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-export const CASE_CODE_PATTERN = /^WB-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
+export const CASE_CODE_PATTERN =
+  /^WB-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
 
 /** Normalises user input like "wb 7k3m 9qxp" to "WB-7K3M-9QXP". */
 export function normalizeCaseCode(input: string): string {
@@ -133,7 +143,9 @@ export type StatusLookupInput = z.infer<typeof statusLookupSchema>;
 
 export const messageBodySchema = z.string().trim().min(1).max(4000);
 
-export const reporterReplySchema = statusLookupSchema.extend({ body: messageBodySchema });
+export const reporterReplySchema = statusLookupSchema.extend({
+  body: messageBodySchema,
+});
 
 export interface ThreadMessage {
   id: string;

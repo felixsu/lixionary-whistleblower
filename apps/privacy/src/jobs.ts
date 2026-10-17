@@ -253,6 +253,10 @@ export function startJobs(
 }
 export async function expire(db: Db, config: Config) {
   await rows(db, sql`delete from rate_limits where expires_at<=now()`);
+  await rows(
+    db,
+    sql`delete from conversation_usage where day<(now() at time zone 'UTC')::date-1`,
+  );
   await db.transaction(async (tx) => {
     await rows(
       tx,

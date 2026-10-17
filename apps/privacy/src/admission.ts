@@ -453,6 +453,9 @@ export async function admissionRoutes(app: FastifyInstance) {
             reportToken: rawToken,
             submissionHash: z.string().regex(/^[a-f0-9]{64}$/),
             caseId: z.uuid(),
+            aiConsent: z.boolean().default(false),
+            policyVersion: z.number().int().positive().optional(),
+            locale: z.enum(["en", "id"]).default("en"),
             intakeId: z.uuid().optional(),
             intakeToken: z.string().optional(),
           })
@@ -484,6 +487,15 @@ export async function admissionRoutes(app: FastifyInstance) {
               tx,
               sql`delete from intakes where admission_id=${g.id} and case_id is null`,
             );
+          if (v.aiConsent && !v.intakeId) {
+            if (!v.policyVersion)
+              throw new PrivacyError(400, "validation_error");
+            const id = randomUUID();
+            await rows(
+              tx,
+              sql`insert into intakes(id,token_hash,case_id,locale,consent_version,transcript_enc) values(${id},${digest(token())},${v.caseId},${v.locale},${v.policyVersion},${seal([], config.keys, "intake:" + id)})`,
+            );
+          }
           await rows(
             tx,
             sql`update admission_grants set employee_id=null,submission_hash=${v.submissionHash},case_id=${v.caseId},reserved_at=now() where id=${g.id}`,

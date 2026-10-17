@@ -97,38 +97,6 @@ for (const scenario of [
         },
       });
     });
-    const intakeId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-      intakeToken = "i".repeat(43);
-    await page.route("**/privacy/intake**", async (route) => {
-      const path = new URL(route.request().url()).pathname;
-      seen.push({
-        path,
-        body: route.request().postDataJSON(),
-        access: route.request().headers()["x-report-access"],
-      });
-      expect(verified).toBe(true);
-      expect(route.request().headers()["x-report-access"]).toBe(reportToken);
-      if (path === "/privacy/intake")
-        return route.fulfill({ json: { id: intakeId, token: intakeToken } });
-      expect(route.request().headers().authorization).toBe(
-        `Bearer ${intakeToken}`,
-      );
-      if (path.endsWith("/messages"))
-        return route.fulfill({
-          json: { answer: "Synthetic assistant response" },
-        });
-      return route.fulfill({
-        json: {
-          draft: {
-            title: "My preserved concern",
-            summary:
-              "Synthetic report content that remains anonymous to the review team.",
-            category: "other",
-            details: {},
-          },
-        },
-      });
-    });
     if (scenario === "ai") {
       await page.goto("/");
       await page
@@ -311,45 +279,22 @@ for (const scenario of [
       await page
         .getByLabel(
           label(
-            "I consent to MiniMax processing this private conversation. I will review the draft before submission.",
-            "Saya menyetujui pemrosesan percakapan pribadi ini oleh MiniMax. Saya akan meninjau draf sebelum mengirim.",
+            "I consent to MiniMax processing my submitted report and private follow-up conversation. I will review updates before sharing them with investigators.",
+            "Saya menyetujui MiniMax memproses laporan terkirim dan percakapan tindak lanjut pribadi saya. Saya akan meninjau pembaruan sebelum membagikannya kepada penyelidik.",
           ),
         )
         .check();
-      await page
-        .getByRole("button", {
+      await expect(
+        page.getByRole("button", {
           name: label(
             "Use optional assisted intake",
             "Gunakan panduan AI opsional",
           ),
           exact: true,
-        })
-        .click();
-      await page
-        .getByLabel(label("Message", "Pesan"), { exact: true })
-        .fill("A synthetic procurement concern for the AI interview.");
-      await page
-        .getByRole("button", { name: label("Send", "Kirim"), exact: true })
-        .click();
-      await expect(
-        page.getByText("Synthetic assistant response", { exact: false }),
-      ).toBeVisible();
-      await page
-        .getByRole("button", {
-          name: label(
-            "Create an editable draft",
-            "Buat draf yang dapat diedit",
-          ),
-          exact: true,
-        })
-        .click();
-      await expect
-        .poll(() => seen.some((r) => r.path.endsWith("/draft")))
-        .toBe(true);
-      await expect(
-        page.getByLabel(label("Title", "Judul"), { exact: true }),
-      ).toHaveValue("My preserved concern");
+        }),
+      ).toHaveCount(0);
     }
+
     await page
       .getByLabel(
         label(
@@ -414,10 +359,8 @@ for (const scenario of [
     ).toBe(true);
     if (scenario === "ai") {
       const report = seen.find((r) => r.path === "/api/reporter/reports");
-      expect(report?.body).toMatchObject({ intakeId, intakeToken });
-      expect(
-        seen.filter((r) => r.path.startsWith("/privacy/intake")),
-      ).toHaveLength(3);
+      expect(report?.body).toMatchObject({ aiConsent: true });
+      expect(report?.body).not.toHaveProperty("intakeId");
     }
     expect(
       await page.evaluate(() =>

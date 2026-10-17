@@ -15,6 +15,7 @@ import {
   privateApi,
   usePoll,
 } from "@/components/suite/common";
+import { CaseConversation } from "@/components/suite/case-conversation";
 import { Evidence } from "@/components/suite/evidence";
 type Case = {
   caseCode: string;
@@ -192,8 +193,15 @@ export default function Portal() {
               {t("rotate")}
             </button>
           </section>
+          <CaseConversation
+            key={report.caseCode}
+            t={t}
+            lang={lang}
+            closed={report.state === "closed"}
+            onShared={load}
+          />
           <section>
-            <h2>{t("messages")}</h2>
+            <h2>{t("investigatorMessages")}</h2>
             <div aria-live="polite">
               {report.messages.map((m) => (
                 <article key={m.id}>

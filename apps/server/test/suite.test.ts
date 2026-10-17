@@ -173,6 +173,137 @@ async function privateCall(
     headers: { origin, "x-csrf": "1", authorization: `Bearer ${bearer}` },
   });
 }
+async function withConversation(
+  run: (f: {
+    cookie: string;
+    caseId: string;
+    receipt: any;
+    content: any;
+    requests: any[];
+    provider: { fail: boolean; pause: boolean; release?: () => void };
+    request: (
+      path: string,
+      body?: unknown,
+      method?: string,
+      cap?: string,
+    ) => Promise<{ statusCode: number; json: () => any; body: string }>;
+    start: (
+      consent?: boolean,
+    ) => Promise<{ statusCode: number; json: () => any; body: string }>;
+  }) => Promise<void>,
+) {
+  counts.clear();
+  const bridge = globalThis.fetch;
+  const aiApp = await buildPrivacy({
+    db: vault.db,
+    config: {
+      ...privacy.privacyDeps.config,
+      ai: { ...privacy.privacyDeps.config.ai, apiKey: "synthetic-fixture-key" },
+    },
+    limiter,
+  });
+  const [before] = await rows(
+    caseStore.db,
+    sql`select body,version from settings where id=1`,
+  );
+  await rows(
+    caseStore.db,
+    sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
+  );
+  const requests: any[] = [],
+    provider: { fail: boolean; pause: boolean; release?: () => void } = {
+      fail: false,
+      pause: false,
+    };
+  vi.stubGlobal("fetch", async (url: string, opts: RequestInit) => {
+    if (String(url).includes("api.minimax.io")) {
+      const input = JSON.parse(String(opts.body));
+      requests.push(input);
+      if (provider.pause)
+        await new Promise<void>((resolve) => {
+          provider.release = resolve;
+        });
+      if (provider.fail)
+        return new Response("synthetic upstream failure", { status: 503 });
+      const content =
+        input.max_tokens === 4096
+          ? JSON.stringify({
+              summary: "Reviewed structured follow-up",
+              details: {
+                why: "Unknown",
+                how: "Invoice processing",
+                where: "Warehouse A",
+              },
+            })
+          : "Confirm the submitted details. Is there anything to correct?";
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }] }),
+        { status: 200 },
+      );
+    }
+    return bridge(url, opts);
+  });
+  try {
+    const content = {
+      title: "Form-first synthetic concern",
+      summary:
+        "A procurement concern submitted before any assistant processing.",
+      category: "fraud",
+      details: {
+        where: "Warehouse A",
+        why: "Unknown",
+        how: "Invoice processing",
+      },
+      privacyReviewed: true,
+      policyVersion: 1,
+      aiConsent: true,
+    };
+    const submission = await call("/api/reporter/reports", content);
+    expect(submission.statusCode).toBe(201);
+    const f = {
+      cookie: cookie(submission),
+      caseId: (
+        await call("/api/reporter/case", undefined, cookie(submission))
+      ).json().id as string,
+      receipt: submission.json(),
+      content,
+      requests,
+      provider,
+      request: async (
+        path: string,
+        body?: unknown,
+        method?: string,
+        cap?: string,
+      ) => {
+        const bearer =
+          cap ??
+          (await call("/api/reporter/capability", {}, f.cookie)).json()
+            .capability;
+        return aiApp.inject({
+          url: "/privacy/reporter/conversation" + path,
+          method: (method ??
+            (body === undefined ? "GET" : "POST")) as InjectOptions["method"],
+          payload: body as InjectOptions["payload"],
+          headers: { origin, "x-csrf": "1", authorization: "Bearer " + bearer },
+        });
+      },
+      start: (consent = false) =>
+        f.request("/start", {
+          requestId: randomUUID(),
+          ...(consent ? { consent: true, policyVersion: 1, locale: "en" } : {}),
+        }),
+    };
+    await run(f);
+  } finally {
+    provider.release?.();
+    vi.stubGlobal("fetch", bridge);
+    await aiApp.close();
+    await rows(
+      caseStore.db,
+      sql`update settings set body=${JSON.stringify(before!.body)}::jsonb,version=${before!.version} where id=1`,
+    );
+  }
+}
 beforeAll(async () => {
   const url = (
     await readFile(
@@ -1626,289 +1757,369 @@ describe("suite privacy and workflow boundaries", () => {
         .statusCode,
     ).toBe(403);
   });
-  it("completes verified email admission, AI intake, draft, and anonymous submission", async () => {
-    counts.clear();
-    const bridge = globalThis.fetch;
-    const aiApp = await buildPrivacy({
-      db: vault.db,
-      config: {
-        ...privacy.privacyDeps.config,
-        ai: {
-          ...privacy.privacyDeps.config.ai,
-          apiKey: "synthetic-fixture-key",
-        },
-      },
-      limiter,
-    });
-    const [before] = await rows(
-      caseStore.db,
-      sql`select body from settings where id=1`,
-    );
-    await rows(
-      caseStore.db,
-      sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
-    );
-    const draft = {
-      title: "Synthetic procurement concern",
-      summary:
-        "A synthetic procurement concern with sufficient detail for independent review.",
-      category: "fraud",
-      details: {},
-    };
-    let calls = 0;
-    vi.stubGlobal("fetch", async (url: string, opts: RequestInit) => {
-      if (String(url).includes("api.minimax.io")) {
-        calls++;
-        const request = JSON.parse(String(opts.body));
-        const content =
-          request.max_tokens === 2048
-            ? JSON.stringify({ draft, completeness: 80, missing: [] })
-            : "Synthetic assistant response";
-        return new Response(
-          JSON.stringify({ choices: [{ message: { content } }] }),
-          { status: 200 },
-        );
-      }
-      return bridge(url, opts);
-    });
-    try {
-      const access = await verifiedAccess();
-      const headers = {
-        origin,
-        "x-csrf": "1",
-        "x-report-access": access.reportToken,
-      };
-      const started = await aiApp.inject({
-        url: "/privacy/intake",
-        method: "POST",
-        headers,
-        payload: { consent: true, locale: "en", policyVersion: 1 },
+  it("submits the form before AI and privately persists context, transcript and review drafts", async () => {
+    await withConversation(async (f) => {
+      expect(f.requests).toHaveLength(0);
+      const initial = await f.request("");
+      expect(initial.json()).toMatchObject({
+        consented: true,
+        initialized: false,
+        messages: [],
       });
+      const started = await f.start();
       expect(started.statusCode).toBe(200);
-      const intake = started.json();
-      const aiHeaders = { ...headers, authorization: "Bearer " + intake.token };
-      const message = await aiApp.inject({
-        url: `/privacy/intake/${intake.id}/messages`,
-        method: "POST",
-        headers: aiHeaders,
-        payload: { body: draft.summary },
+      expect(started.json().messages).toHaveLength(1);
+      expect(f.requests[0].messages[0].content).toContain(
+        "information is already complete",
+      );
+      expect(f.requests[0].messages[1].content).toContain("Warehouse A");
+      const sent = await f.request("/messages", {
+        requestId: randomUUID(),
+        body: "Unreviewed private identity clue",
       });
-      expect(message.statusCode).toBe(200);
-      const assessed = await aiApp.inject({
-        url: `/privacy/intake/${intake.id}/draft`,
-        method: "POST",
-        headers: aiHeaders,
-        payload: {},
-      });
-      expect(assessed.statusCode).toBe(200);
-      expect(assessed.json().draft.title).toBe(draft.title);
-      expect(calls).toBe(2);
-      const submitted = await app.inject({
-        url: "/api/reporter/reports",
-        method: "POST",
-        headers,
-        payload: {
-          ...assessed.json().draft,
-          submission: {
-            pin: token(),
-            recoveryCode: token(),
-            submissionToken: token(),
-          },
-          policyVersion: 1,
-          privacyReviewed: true,
-          intakeId: intake.id,
-          intakeToken: intake.token,
-        },
-      });
-      expect(submitted.statusCode).toBe(201);
-      const view = await call(
-        "/api/reporter/case",
+      expect(sent.statusCode).toBe(200);
+      expect(sent.json().messages).toHaveLength(3);
+      const draft = await f.request("/draft", { requestId: randomUUID() });
+      expect(draft.statusCode).toBe(200);
+      expect(draft.json().draft.details.why).toBe("Unknown");
+      expect((await f.request("")).json().draft).toEqual(draft.json().draft);
+      const view = await call("/api/reporter/case", undefined, f.cookie);
+      const staff = await call(
+        "/api/cases/" + view.json().id,
         undefined,
-        cookie(submitted),
+        cookies.manager,
       );
-      expect(view.statusCode).toBe(200);
-      const [claimed] = await rows(
-        vault.db,
-        sql`select case_id from intakes where id=${intake.id}`,
-      );
-      expect(claimed!.case_id).toBe(view.json().id);
+      expect(staff.statusCode).toBe(200);
+      expect(staff.body).not.toContain("Unreviewed private identity clue");
+      expect(staff.body).not.toContain("aiConsent");
       const [grant] = await rows(
         vault.db,
-        sql`select employee_id from admission_grants where token_hash=${digest(access.reportToken)}`,
+        sql`select employee_id from admission_grants where case_id=${view.json().id}`,
       );
       expect(grant!.employee_id).toBeNull();
-      expect(JSON.stringify(view.json())).not.toContain(access.email);
-    } finally {
-      vi.stubGlobal("fetch", bridge);
-      await aiApp.close();
-      await rows(
-        caseStore.db,
-        sql`update settings set body=${JSON.stringify(before!.body)}::jsonb where id=1`,
-      );
-    }
-  });
-  it("bounds AI work, resumes without resetting quotas, and denies concurrent or foreign grants", async () => {
-    counts.clear();
-    const bridge = globalThis.fetch,
-      config = {
-        ...privacy.privacyDeps.config,
-        ai: {
-          ...privacy.privacyDeps.config.ai,
-          apiKey: "synthetic-fixture-key",
-        },
-      };
-    const aiApp = await buildPrivacy({ db: vault.db, config, limiter });
-    const [before] = await rows(
-      caseStore.db,
-      sql`select body from settings where id=1`,
-    );
-    await rows(
-      caseStore.db,
-      sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
-    );
-    let calls = 0,
-      release: (() => void) | undefined,
-      waitForAi = false;
-    vi.stubGlobal("fetch", async (url: string, opts: RequestInit) => {
-      if (String(url).includes("api.minimax.io")) {
-        calls++;
-        if (waitForAi)
-          await new Promise<void>((resolve) => {
-            release = resolve;
-          });
-        return new Response(
-          JSON.stringify({
-            choices: [{ message: { content: "Synthetic assistant response" } }],
-          }),
-          { status: 200 },
-        );
-      }
-      return bridge(url, opts);
     });
-    const aiCall = (
-      path: string,
-      body: unknown,
-      reportToken: string,
-      intakeToken?: string,
-    ) =>
-      aiApp.inject({
-        url: "/privacy/intake" + path,
-        method: "POST",
-        headers: {
-          origin,
-          "x-csrf": "1",
-          "x-report-access": reportToken,
-          ...(intakeToken ? { authorization: "Bearer " + intakeToken } : {}),
-        },
-        payload: body as InjectOptions["payload"],
-      });
-    try {
-      const access = await verifiedAccess(),
-        foreign = await verifiedAccess();
-      const started = await aiCall(
-        "",
-        { consent: true, locale: "en", policyVersion: 1 },
-        access.reportToken,
-      );
-      expect(started.statusCode).toBe(200);
-      const i = started.json();
+  });
+  it("replays AI and published update requests without duplicate work, audits or notifications", async () => {
+    await withConversation(async (f) => {
+      await f.start();
+      const payload = {
+        requestId: randomUUID(),
+        body: "Additional private information",
+      };
+      const first = await f.request("/messages", payload);
+      expect(first.statusCode).toBe(200);
+      const n = f.requests.length;
+      expect(
+        (await f.request("/messages", payload)).json().messages,
+      ).toHaveLength(3);
+      expect(f.requests).toHaveLength(n);
+      expect(
+        (await f.request("/messages", { ...payload, body: "Changed content" }))
+          .statusCode,
+      ).toBe(409);
+      const clientMessageId = randomUUID(),
+        update = {
+          body: "Reporter-reviewed AI follow-up: additional approved details",
+          privacyReviewed: true,
+          clientMessageId,
+        };
+      expect(
+        (await call("/api/reporter/messages", update, f.cookie)).statusCode,
+      ).toBe(201);
+      expect(
+        (await call("/api/reporter/messages", update, f.cookie)).statusCode,
+      ).toBe(201);
       expect(
         (
-          await aiCall(
-            "",
-            { consent: true, locale: "en", policyVersion: 1 },
-            access.reportToken,
+          await call(
+            "/api/reporter/messages",
+            { ...update, body: "Changed reviewed content" },
+            f.cookie,
           )
         ).statusCode,
       ).toBe(409);
-      expect(
-        (
-          await aiCall(
-            `/${i.id}/messages`,
-            { body: "test" },
-            foreign.reportToken,
-            i.token,
-          )
-        ).statusCode,
-      ).toBe(401);
-      expect(calls).toBe(0);
-      waitForAi = true;
-      const running = aiCall(
-        `/${i.id}/messages`,
-        { body: "First question" },
-        access.reportToken,
-        i.token,
+      const [nrows] = await rows(
+        caseStore.db,
+        sql`select (select count(*)::int from case_messages where case_id=${f.caseId}) messages,(select count(*)::int from audit_events where case_id=${f.caseId} and action='reporter_message') audits,(select count(*)::int from jobs where case_id=${f.caseId} and kind='staff_alert' and body->>'event'='reply') jobs`,
       );
-      await vi.waitFor(() => expect(release).toBeDefined());
+      expect(nrows).toEqual({ messages: 1, audits: 1, jobs: 1 });
       expect(
-        (await aiCall(`/${i.id}/draft`, {}, access.reportToken, i.token))
-          .statusCode,
-      ).toBe(409);
-      expect(calls).toBe(1);
-      waitForAi = false;
-      release!();
-      expect((await running).statusCode).toBe(200);
+        (await call("/api/reporter/case", undefined, f.cookie)).json().content
+          .summary,
+      ).toBe(f.content.summary);
+    });
+  });
+  it("saves failed messages, rejects concurrent work and retries without duplicating reporter text", async () => {
+    await withConversation(async (f) => {
+      await f.start();
+      f.provider.pause = true;
+      const payload = {
+        requestId: randomUUID(),
+        body: "Persist this even if AI fails",
+      };
+      const running = f.request("/messages", payload);
+      await vi.waitFor(() => expect(f.provider.release).toBeTypeOf("function"));
       expect(
-        (await aiCall(`/${i.id}/draft`, {}, access.reportToken, i.token))
-          .statusCode,
-      ).toBe(500);
-      const [charged] = await rows(
-        vault.db,
-        sql`select messages,drafts from admission_grants where token_hash=${digest(access.reportToken)}`,
-      );
-      expect(charged).toMatchObject({ messages: 1, drafts: 1 });
-      await rows(
-        vault.db,
-        sql`update admission_grants set messages=30,drafts=3,expires_at=now()-interval '1 second' where token_hash=${digest(access.reportToken)}`,
-      );
-      expect(
-        (
-          await aiCall(
-            `/${i.id}/messages`,
-            { body: "Expired question" },
-            access.reportToken,
-            i.token,
-          )
-        ).statusCode,
-      ).toBe(401);
-      // A fresh proof of the same destination extends the existing grant, without new conversation or counters.
-      const cid = randomUUID();
-      await rows(
-        vault.db,
-        sql`insert into admission_challenges(id,email_hash,email_enc,purpose,code_hash,locale,expires_at) values(${cid},${mac(shared, "employee:" + access.email)},${seal(access.email, vaultRing, "admission-challenge:" + cid)},'report',${mac(shared, cid + ":123456")},'en',now()+interval '5 minutes')`,
-      );
-      const resumed = await admission("verify", {
-        challengeId: cid,
-        code: "123456",
-        resumeToken: access.reportToken,
+        (await f.request("/draft", { requestId: randomUUID() })).json().error,
+      ).toBe("conversation_busy");
+      const pending = await f.request("");
+      expect(pending.json().messages.at(-1).content).toBe(payload.body);
+      f.provider.fail = true;
+      f.provider.pause = false;
+      f.provider.release!();
+      expect((await running).statusCode).toBe(503);
+      const saved = await f.request("");
+      expect(saved.json().pending).toMatchObject({
+        id: payload.requestId,
+        retryable: true,
+        status: "failed",
       });
-      expect(resumed.json().reportToken).toBe(access.reportToken);
-      for (const kind of ["messages", "draft"])
+      const n = f.requests.length;
+      expect((await f.request("/messages", payload)).statusCode).toBe(503);
+      expect(f.requests).toHaveLength(n);
+      expect(
+        (
+          await f.request("/messages", {
+            requestId: randomUUID(),
+            body: "Cannot skip failed reply",
+          })
+        ).statusCode,
+      ).toBe(409);
+      f.provider.fail = false;
+      const retried = await f.request("/messages", {
+        requestId: randomUUID(),
+        retryOf: payload.requestId,
+      });
+      expect(retried.statusCode).toBe(200);
+      expect(
+        retried.json().messages.filter((m: any) => m.content === payload.body),
+      ).toHaveLength(1);
+      expect(retried.json().usage.messages).toBe(3);
+    });
+  });
+  it("resumes after signout and recovery without email admission and rejects stale capabilities", async () => {
+    await withConversation(async (f) => {
+      await f.start();
+      const stale = (
+        await call("/api/reporter/capability", {}, f.cookie)
+      ).json().capability;
+      await call("/api/reporter/session", undefined, f.cookie, "DELETE");
+      expect((await f.request("", undefined, "GET", stale)).statusCode).toBe(
+        401,
+      );
+      const login = await call("/api/reporter/session", {
+        caseCode: f.receipt.caseCode,
+        pin: f.receipt.pin,
+      });
+      expect(login.statusCode).toBe(200);
+      f.cookie = cookie(login);
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      const recovered = await call("/api/reporter/recover", {
+        caseCode: f.receipt.caseCode,
+        recoveryCode: f.receipt.recoveryCode,
+      });
+      expect(recovered.statusCode).toBe(200);
+      f.cookie = cookie(recovered);
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      expect((await f.request("", undefined, "GET", stale)).statusCode).toBe(
+        401,
+      );
+      const rotated = await call("/api/reporter/rotate", {}, f.cookie);
+      f.cookie = cookie(rotated);
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      const foreign = (
+        await call("/api/reporter/capability", {}, reporterCookie)
+      ).json().capability;
+      expect(
+        (await f.request("", undefined, "GET", foreign)).json().messages,
+      ).toEqual([]);
+    });
+  });
+  it("enforces daily case allowances across consent renewal and resets only at the next UTC day", async () => {
+    await withConversation(async (f) => {
+      await f.start();
+      await rows(
+        vault.db,
+        sql`update conversation_usage set messages=30,drafts=3 where case_id=${f.caseId}`,
+      );
+      for (const path of ["/messages", "/draft"])
         expect(
           (
-            await aiCall(
-              `/${i.id}/${kind}`,
-              { body: "Beyond quota" },
-              access.reportToken,
-              i.token,
-            )
+            await f.request(path, {
+              requestId: randomUUID(),
+              body: "Quota test",
+            })
           ).statusCode,
         ).toBe(429);
-      expect(calls).toBe(3);
-      const [g] = await rows(
+      await f.request("", undefined, "DELETE");
+      expect((await f.start(true)).statusCode).toBe(429);
+      await rows(
         vault.db,
-        sql`select messages,drafts from admission_grants where token_hash=${digest(access.reportToken)}`,
+        sql`update conversation_usage set day=day-1 where case_id=${f.caseId}`,
       );
-      expect(g).toMatchObject({ messages: 30, drafts: 3 });
-    } finally {
-      release?.();
-      await aiApp.close();
-      vi.stubGlobal("fetch", bridge);
+      const next = await f.start(true);
+      expect(next.statusCode).toBe(200);
+      expect(next.json().usage).toMatchObject({ messages: 1, drafts: 0 });
+    });
+  });
+  it("keeps AI optional, renews changed policy consent and preserves history during outages and legal holds", async () => {
+    await withConversation(async (f) => {
+      // A report without consent remains valid and cannot start AI implicitly.
+      await rows(vault.db, sql`delete from intakes where case_id=${f.caseId}`);
+      expect((await f.request("")).json().needsConsent).toBe(true);
+      expect((await f.start()).json().error).toBe("ai_consent_required");
+      await f.start(true);
       await rows(
         caseStore.db,
-        sql`update settings set body=${JSON.stringify(before!.body)}::jsonb where id=1`,
+        sql`update settings set version=version+1 where id=1`,
       );
-    }
+      expect((await f.request("")).json().needsConsent).toBe(true);
+      expect(
+        (
+          await f.request("/messages", {
+            requestId: randomUUID(),
+            body: "No processing without renewed consent",
+          })
+        ).json().error,
+      ).toBe("policy_changed");
+      const renewed = await f.request("/start", {
+        requestId: randomUUID(),
+        consent: true,
+        policyVersion: 2,
+      });
+      expect(renewed.statusCode).toBe(200);
+      expect(f.requests).toHaveLength(1);
+      await rows(
+        caseStore.db,
+        sql`update settings set body=jsonb_set(body,'{aiEnabled}','false'::jsonb) where id=1`,
+      );
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      expect(
+        (
+          await f.request("/messages", {
+            requestId: randomUUID(),
+            body: "Disabled",
+          })
+        ).json().error,
+      ).toBe("ai_disabled");
+      await rows(
+        caseStore.db,
+        sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
+      );
+      expect(
+        (await f.request("/draft", { requestId: randomUUID() })).statusCode,
+      ).toBe(200);
+      await rows(
+        caseStore.db,
+        sql`update cases set hold=true where id=${f.caseId}`,
+      );
+      expect(
+        (await f.request("/draft", undefined, "DELETE")).json().error,
+      ).toBe("legal_hold");
+      expect((await f.request("")).json().draft).not.toBeNull();
+      expect((await f.request("", undefined, "DELETE")).json().error).toBe(
+        "legal_hold",
+      );
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      await rows(
+        caseStore.db,
+        sql`update cases set hold=false,state='closed' where id=${f.caseId}`,
+      );
+      await rows(
+        caseStore.db,
+        sql`update settings set body=jsonb_set(body,'{aiEnabled}','true'::jsonb) where id=1`,
+      );
+      expect(
+        (
+          await f.request("/messages", {
+            requestId: randomUUID(),
+            body: "Closed",
+          })
+        ).json().error,
+      ).toBe("case_closed");
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      expect((await f.request("", undefined, "DELETE")).json()).toMatchObject({
+        consented: false,
+        messages: [],
+        draft: null,
+      });
+    });
+  });
+  it("renews policy consent after failed initialization and recovers an expired operation lease", async () => {
+    await withConversation(async (f) => {
+      f.provider.fail = true;
+      expect((await f.start()).statusCode).toBe(503);
+      const pending = (await f.request("")).json().pending;
+      await rows(caseStore.db, sql`update settings set version=2 where id=1`);
+      const renewed = await f.request("/start", {
+        requestId: randomUUID(),
+        consent: true,
+        policyVersion: 2,
+      });
+      expect(renewed.statusCode).toBe(200);
+      expect(renewed.json()).toMatchObject({
+        needsConsent: false,
+        pending: { id: pending.id },
+      });
+      // Simulate a process dying after the persisted attempt but before completing it.
+      await rows(
+        vault.db,
+        sql`update conversation_operations set status='running',lease_until=now()-interval '1 second' where id=${pending.id}`,
+      );
+      expect((await f.request("")).json().pending.retryable).toBe(true);
+      f.provider.fail = false;
+      const retry = await f.request("/start", {
+        requestId: randomUUID(),
+        retryOf: pending.id,
+      });
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json()).toMatchObject({
+        initialized: true,
+        pending: null,
+        usage: { messages: 2 },
+      });
+      expect(retry.json().messages).toHaveLength(1);
+    });
+  });
+  it("retires pre-submission AI while retaining legacy submitted transcripts", async () => {
+    const access = await verifiedAccess();
+    const retired = await privacy.inject({
+      method: "POST",
+      url: "/privacy/intake",
+      headers: { origin, "x-csrf": "1", "x-report-access": access.reportToken },
+      payload: { consent: true, policyVersion: 1, locale: "en" },
+    });
+    expect(retired.statusCode).toBe(410);
+    await withConversation(async (f) => {
+      const [r] = await rows(
+        vault.db,
+        sql`select id from intakes where case_id=${f.caseId}`,
+      );
+      await rows(
+        vault.db,
+        sql`update intakes set state_enc=null,transcript_enc=${seal([{ role: "user", content: "Legacy saved conversation" }], vaultRing, "intake:" + r!.id)} where id=${r!.id}`,
+      );
+      expect((await f.request("")).json()).toMatchObject({
+        initialized: true,
+        messages: [{ role: "user", content: "Legacy saved conversation" }],
+      });
+      await rows(
+        vault.db,
+        sql`update intakes set created_at=now()-interval '400 days' where id=${r!.id}`,
+      );
+      await rows(
+        caseStore.db,
+        sql`update cases set hold=true where id=${f.caseId}`,
+      );
+      await expirePrivate(vault.db, privacy.privacyDeps.config);
+      expect((await f.request("")).json().messages).toHaveLength(1);
+      await rows(
+        caseStore.db,
+        sql`update cases set hold=false where id=${f.caseId}`,
+      );
+      await expirePrivate(vault.db, privacy.privacyDeps.config);
+      expect((await f.request("")).json().messages).toEqual([]);
+    });
   });
   it("normalizes directory emails, revokes edited addresses, and never approves over a disabled employee", async () => {
     counts.clear();
