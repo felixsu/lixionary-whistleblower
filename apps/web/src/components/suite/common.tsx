@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { BuildSignature } from "@/components/build-signature";
+import { LanguageSelector } from "./language-selector";
 import { api, ApiError } from "@/lib/api";
 export const strings = {
   developmentTracker: ["Development Tracker", "Pelacak Pengembangan"],
@@ -413,14 +414,7 @@ export function Shell({
               {t(key)}
             </Link>
           ))}
-          <select
-            aria-label="Language"
-            value={lang}
-            onChange={(e) => setLang(e.target.value as Lang)}
-          >
-            <option value="en">English</option>
-            <option value="id">Bahasa Indonesia</option>
-          </select>
+          <LanguageSelector value={lang} onChange={setLang} />
         </nav>
       </header>
       <main

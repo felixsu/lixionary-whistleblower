@@ -17,6 +17,7 @@ import { LogOut, Menu, X, ShieldCheck } from "lucide-react";
 import type { StaffIdentity } from "@whistle/shared";
 import { api, ApiError } from "@/lib/api";
 import { BuildSignature } from "@/components/build-signature";
+import { LanguageSelector } from "./language-selector";
 import { ErrorBox, StatusBadge, friendly, useLanguage } from "./common";
 import {
   safeStaffReturn,
@@ -290,14 +291,7 @@ export function StaffWorkspace({ children }: { children: ReactNode }) {
             <span className="brand-caption">{t("staff")}</span>
           </div>
           <div className="staff-header-controls">
-            <select
-              aria-label="Language"
-              value={lang}
-              onChange={(e) => setLang(e.target.value as "en" | "id")}
-            >
-              <option value="en">English</option>
-              <option value="id">Bahasa Indonesia</option>
-            </select>
+            <LanguageSelector value={lang} onChange={setLang} />
             {user && (
               <button
                 ref={toggle}

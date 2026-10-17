@@ -1,3 +1,4 @@
+import { selectLanguage } from "./language";
 import { test, expect } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 test("anonymous reporting, secret receipt, private conversation and recovery", async ({
@@ -5,8 +6,7 @@ test("anonymous reporting, secret receipt, private conversation and recovery", a
 }, info) => {
   const id = info.project.name === "mobile-id";
   await page.goto("/");
-  if (id)
-    await page.getByRole("combobox", { name: "Language" }).selectOption("id");
+  if (id) await selectLanguage(page, "id");
   await page
     .getByRole("link", { name: id ? "Buat laporan" : "Create a report" })
     .first()

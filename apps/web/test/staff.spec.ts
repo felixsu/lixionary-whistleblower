@@ -1,3 +1,4 @@
+import { selectLanguage } from "./language";
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { generate } from "otplib";
@@ -7,8 +8,7 @@ test("staff MFA and assigned review workflow preserve contact privacy", async ({
   const id = info.project.name === "mobile-id",
     name = id ? "manager2" : "manager";
   await page.goto("/staff/login");
-  if (id)
-    await page.getByRole("combobox", { name: "Language" }).selectOption("id");
+  if (id) await selectLanguage(page, "id");
   await page
     .getByLabel("Email", { exact: true })
     .fill(`e2e-${name}@example.test`);

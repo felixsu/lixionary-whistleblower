@@ -166,7 +166,7 @@ textarea {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.suite nav select {
+.suite nav .language-selector {
   width: auto;
   max-width: 100%;
   margin: 0 0 0 12px;
@@ -427,6 +427,101 @@ textarea {
   color: var(--muted);
   cursor: not-allowed;
 }
+.language-selector {
+  position: relative;
+  min-width: 0;
+  font-size: 13px;
+}
+.suite .language-trigger {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 12px;
+  gap: 12px;
+  font-size: inherit;
+  white-space: nowrap;
+  border-color: var(--control-border);
+}
+.language-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.language-trigger svg {
+  flex-shrink: 0;
+}
+.language-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.suite .language-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--ring-focus);
+}
+.suite .language-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  min-width: 100%;
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.language-options [role="option"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.language-options [aria-selected="true"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.language-options .is-active {
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.suite button.google-login {
+  min-height: 44px;
+  padding: 11px 12px;
+  gap: 10px;
+  background: #fff;
+  border-color: #747775;
+  color: #1f1f1f;
+  font-size: 14px;
+  line-height: 20px;
+}
+.suite button.google-login:hover:not(:disabled) {
+  background: #f8faff;
+  border-color: #1f1f1f;
+}
+.suite button.google-login:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.suite button.google-login:disabled {
+  background: #fff;
+  opacity: 0.6;
+}
+.google-login img {
+  flex-shrink: 0;
+  background: #fff;
+  object-fit: contain;
+}
 .suite .error {
   background: var(--danger-soft);
   color: var(--danger);
@@ -675,8 +770,8 @@ textarea {
     padding: 8px;
     font-size: 12px;
   }
-  .suite nav select {
-    margin: 8px 0 0;
+  .suite nav .language-selector {
+    margin: 8px 0 0 auto;
   }
   .suite-content {
     padding: 28px 16px 40px;
@@ -747,7 +842,7 @@ textarea {
   align-items: center;
   gap: 12px;
 }
-.staff-header-controls select {
+.staff-header-controls .language-selector {
   width: auto;
   max-width: 160px;
   margin: 0;
@@ -952,9 +1047,13 @@ textarea {
   .staff-header-controls {
     gap: 8px;
   }
-  .staff-header-controls select {
+  .staff-header-controls .language-selector {
     max-width: 136px;
     font-size: 12px;
+  }
+  .staff-header-controls .language-options {
+    left: 0;
+    right: auto;
   }
 }
 

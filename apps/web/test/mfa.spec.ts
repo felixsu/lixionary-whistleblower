@@ -1,3 +1,4 @@
+import { selectLanguage } from "./language";
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { generate, generateSecret, generateURI, verify } from "otplib";
 import jsQR from "jsqr";
@@ -40,8 +41,7 @@ async function mockStaffAuth(page: Page, enrolled = false) {
 
 async function signIn(page: Page, id: boolean) {
   await page.goto("/staff/login");
-  if (id)
-    await page.getByRole("combobox", { name: "Language" }).selectOption("id");
+  if (id) await selectLanguage(page, "id");
   await page.getByLabel("Email", { exact: true }).fill("e2e-qr@example.test");
   await page
     .getByLabel(id ? "Kata sandi" : "Password", { exact: true })

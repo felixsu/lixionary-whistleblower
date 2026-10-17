@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import localFont from "next/font/local";
 import { safeStaffReturn } from "@/components/suite/staff-navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { api, ApiError } from "@/lib/api";
@@ -11,6 +12,14 @@ import {
   ErrorBox,
   friendly,
 } from "@/components/suite/common";
+
+const googleSans = localFont({
+  src: "../../fonts/google-sans-latin-500-normal.woff2",
+  weight: "500",
+  display: "swap",
+  preload: false,
+});
+
 export default function Login() {
   const l = useLanguage(),
     { t, lang } = l,
@@ -142,7 +151,7 @@ export default function Login() {
             </button>
             {!reset && googleEnabled && (
               <button
-                className="secondary"
+                className={`secondary google-login ${googleSans.className}`}
                 type="button"
                 disabled={!hydrated || a.busy || resuming}
                 onClick={() => {
@@ -164,7 +173,14 @@ export default function Login() {
                   });
                 }}
               >
-                {t("googleLogin")}
+                <img
+                  src="/google-g.png"
+                  width={20}
+                  height={20}
+                  alt=""
+                  aria-hidden="true"
+                />
+                <span>{t("googleLogin")}</span>
               </button>
             )}
             <button

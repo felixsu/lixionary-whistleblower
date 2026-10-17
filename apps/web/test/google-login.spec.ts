@@ -1,3 +1,4 @@
+import { selectLanguage } from "./language";
 import { test, expect, type Page } from "@playwright/test";
 import { generateSecret, generateURI } from "otplib";
 
@@ -108,8 +109,7 @@ async function mockGoogle(
 }
 async function open(page: Page, id: boolean, next = "/staff/account") {
   await page.goto(`/staff/login?next=${encodeURIComponent(next)}`);
-  if (id)
-    await page.getByRole("combobox", { name: "Language" }).selectOption("id");
+  if (id) await selectLanguage(page, "id");
 }
 async function googleButton(page: Page, id: boolean) {
   return page.getByRole("button", {
