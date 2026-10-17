@@ -31,8 +31,14 @@ export type CaseRow = Record<string, unknown> & {
   severity: string;
   created_at: Date;
   updated_at: Date;
+  acknowledged_at?: Date | null;
+  last_response_at?: Date | null;
   closed_at: Date | null;
   closure: Record<string, unknown> | null;
+  detriment_risk?: CaseView["detrimentRisk"];
+  protection_plan_enc?: string | null;
+  detriment_flagged?: boolean;
+  feedback?: Record<string, unknown> | null;
   verification_state: string;
   verified_at: Date | null;
 };
@@ -52,7 +58,10 @@ export async function settings(db: Db | Tx) {
   return {
     version: Number(row!.version),
     configured: Boolean(row!.configured),
-    body: row!.body as CompanySettings,
+    body: {
+      ...defaultSettings,
+      ...(row!.body as CompanySettings),
+    } as CompanySettings,
   };
 }
 export async function audit(
@@ -101,11 +110,19 @@ export async function viewCase(
   keys: Keyring,
   staffView: boolean,
 ): Promise<Record<string, unknown>> {
+  const s = await settings(db);
   const closure = row.closure_enc
     ? unseal<Record<string, unknown>>(
         String(row.closure_enc),
         keys,
         `closure:${row.id}`,
+      )
+    : null;
+  const protectionPlan = row.protection_plan_enc
+    ? unseal<string>(
+        String(row.protection_plan_enc),
+        keys,
+        `protection:${row.id}`,
       )
     : null;
   const content = unseal<SuiteReport>(row.content_enc, keys, `case:${row.id}`);
@@ -134,6 +151,19 @@ export async function viewCase(
     db,
     sql`select id,reason_enc,state,created_at from verification_requests where case_id=${row.id} order by created_at desc`,
   );
+  const createdMs = new Date(String(row.created_at)).getTime();
+  const lastRespMs = row.last_response_at
+    ? new Date(String(row.last_response_at)).getTime()
+    : createdMs;
+  const acknowledgmentDueAt = new Date(
+    createdMs + (s.body.acknowledgmentDays ?? 7) * 86400000,
+  ).toISOString();
+  const nextFollowupDueAt =
+    row.state === "closed"
+      ? null
+      : new Date(
+          lastRespMs + (s.body.followupDays ?? 30) * 86400000,
+        ).toISOString();
   const safe = {
     id: row.id,
     caseCode: row.case_code,
@@ -141,7 +171,13 @@ export async function viewCase(
     content,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    acknowledgedAt: row.acknowledged_at ?? null,
+    acknowledgmentDueAt,
+    nextFollowupDueAt,
     closedAt: row.closed_at,
+    detrimentRisk: row.detriment_risk ?? "unassessed",
+    detrimentFlagged: Boolean(row.detriment_flagged),
+    feedback: row.feedback ?? null,
     messages: messages.map((m) => ({
       id: m.id,
       author: m.author,
@@ -167,6 +203,9 @@ export async function viewCase(
     reopenRequests: decoded
       .filter((r) => r.kind === "reopen")
       .map((r) => ({ id: r.id, body: r.body, created_at: r.created_at })),
+    detrimentReports: decoded
+      .filter((r) => r.kind === "detriment")
+      .map((r) => ({ id: r.id, body: r.body, created_at: r.created_at })),
   };
   if (!staffView) return safe;
   return {
@@ -174,6 +213,7 @@ export async function viewCase(
     category: row.category,
     sensitive: row.sensitive,
     severity: row.severity,
+    protectionPlan,
     ownerId: row.owner_id,
     teamId: row.team_id,
     hold: row.hold,

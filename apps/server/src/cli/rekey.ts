@@ -9,6 +9,7 @@ try {
     for (const [table, column, prefix] of [
       ["cases", "content_enc", "case"],
       ["cases", "closure_enc", "closure"],
+      ["cases", "protection_plan_enc", "protection"],
       ["case_messages", "body_enc", "message"],
       ["case_records", "body_enc", "record"],
       ["verification_requests", "reason_enc", "verification"],

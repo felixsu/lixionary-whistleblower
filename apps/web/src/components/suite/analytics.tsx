@@ -10,7 +10,24 @@ type Metrics = {
     acknowledgment_days: string | null;
   }[];
   outcomes: { outcome: string; count: number }[];
+  rootCauses?: { root_cause: string; count: number }[];
   correctiveActions: { total: number; completed: number }[];
+  sla?: {
+    total: number;
+    within_acknowledgment_sla: number;
+    overdue: number;
+  }[];
+  detriment?: {
+    total: number;
+    elevated_or_critical: number;
+    flagged: number;
+  }[];
+  feedback?: {
+    count: number;
+    trust: string;
+    communication: string;
+    protection: string;
+  }[];
   suppressionThreshold: number;
 };
 export function Analytics({
@@ -76,12 +93,35 @@ export function Analytics({
               {t(o.outcome)}: {o.count}
             </p>
           ))}
+          {(data.rootCauses ?? []).map((rc) => (
+            <p key={rc.root_cause}>
+              {t("rootCause")} ({t(`rc_${rc.root_cause}`)}): {rc.count}
+            </p>
+          ))}
           {data.correctiveActions.map((c, i) => (
             <p key={i}>
               {lang === "id"
                 ? "Tindakan perbaikan selesai"
                 : "Completed corrective actions"}
               : {c.completed} / {c.total}
+            </p>
+          ))}
+          {(data.sla ?? []).map((s, i) => (
+            <p key={i}>
+              {t("slaMetrics")}: {s.within_acknowledgment_sla} / {s.total} ·{" "}
+              {t("overdue")}: {s.overdue}
+            </p>
+          ))}
+          {(data.detriment ?? []).map((d, i) => (
+            <p key={i}>
+              {t("detrimentMetrics")}: {d.elevated_or_critical} / {d.total} ·{" "}
+              {t("detrimentReports")}: {d.flagged}
+            </p>
+          ))}
+          {(data.feedback ?? []).map((fb, i) => (
+            <p key={i}>
+              {t("feedbackMetrics")} ({fb.count}): {fb.trust} /{" "}
+              {fb.communication} / {fb.protection}
             </p>
           ))}
           <button

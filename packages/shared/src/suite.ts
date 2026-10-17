@@ -20,11 +20,54 @@ export const outcomes = [
   "duplicate",
   "withdrawn",
 ] as const;
+export const admissionModes = [
+  "directory",
+  "directory_or_request",
+  "any_verified_email",
+] as const;
+export type AdmissionMode = (typeof admissionModes)[number];
+export const reporterRelationships = [
+  "employee",
+  "former_employee",
+  "contractor_supplier",
+  "external",
+] as const;
+export type ReporterRelationship = (typeof reporterRelationships)[number];
+export const detrimentRisks = [
+  "unassessed",
+  "low",
+  "elevated",
+  "critical",
+] as const;
+export type DetrimentRisk = (typeof detrimentRisks)[number];
+export const rootCauses = [
+  "control_gap",
+  "policy_gap",
+  "training_gap",
+  "culture_leadership",
+  "individual_misconduct",
+  "third_party",
+  "not_applicable",
+] as const;
+export type RootCause = (typeof rootCauses)[number];
+export const subjectResponseStatuses = [
+  "not_applicable",
+  "heard",
+  "deferred_legal_or_safety",
+] as const;
+export type SubjectResponseStatus = (typeof subjectResponseStatuses)[number];
+export const reporterFeedbackSchema = z.object({
+  trust: z.number().int().min(1).max(5),
+  communication: z.number().int().min(1).max(5),
+  protection: z.number().int().min(1).max(5),
+});
+export type ReporterFeedback = z.infer<typeof reporterFeedbackSchema>;
 export const suiteReportSchema = z.object({
   title: z.string().trim().min(5).max(200),
   summary: z.string().trim().min(20).max(10000),
   category: z.string().trim().min(1).max(80),
   businessUnit: z.string().max(100).default(""),
+  relationship: z.enum(reporterRelationships).default("employee"),
   details: z.record(z.string().max(50), z.string().max(5000)).default({}),
   locale: z.enum(locales).default("en"),
   sensitive: z.boolean().default(false),
@@ -75,6 +118,7 @@ export const settingsSchema = z
       .array(z.string().trim().min(1).max(100))
       .max(100)
       .default([]),
+    admissionMode: z.enum(admissionModes).default("directory"),
     aiEnabled: z.boolean().default(false),
     acknowledgmentDays: z.number().int().min(1).max(365),
     followupDays: z.number().int().min(1).max(365),
@@ -114,6 +158,7 @@ export const defaultSettings: CompanySettings = {
     { key: "other", en: "Other misconduct", id: "Pelanggaran lainnya" },
   ],
   businessUnits: [],
+  admissionMode: "directory",
   aiEnabled: false,
   acknowledgmentDays: 7,
   followupDays: 30,
@@ -139,19 +184,27 @@ export interface CaseView {
   category: string;
   sensitive: boolean;
   severity: string;
+  detrimentRisk: DetrimentRisk;
+  detrimentFlagged: boolean;
+  protectionPlan?: string | null;
   ownerId: string | null;
   teamId: string | null;
   content: SuiteReport;
   createdAt: string;
   updatedAt: string;
+  acknowledgedAt: string | null;
+  acknowledgmentDueAt: string | null;
+  nextFollowupDueAt: string | null;
   closedAt: string | null;
   hold: boolean;
   closure: Record<string, unknown> | null;
+  feedback: Record<string, unknown> | null;
   verification: { state: string; verifiedAt: string | null };
   messages: Record<string, unknown>[];
   tasks: Record<string, unknown>[];
   notes: Record<string, unknown>[];
   findings: Record<string, unknown>[];
+  detrimentReports: Record<string, unknown>[];
   evidence: Record<string, unknown>[];
   audit: Record<string, unknown>[];
   members: Record<string, unknown>[];

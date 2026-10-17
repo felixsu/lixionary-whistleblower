@@ -35,6 +35,7 @@ COPY --from=runtime-deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY --from=build /repo/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build /repo/packages/shared/dist ./packages/shared/dist
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /repo/apps/web/public ./apps/web/public
 USER node
 EXPOSE 9551
 CMD ["node", "apps/web/server.js"]

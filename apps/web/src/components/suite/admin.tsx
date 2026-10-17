@@ -3,8 +3,13 @@ import Link from "next/link";
 import { useDraftState, useStaff, DiscardDraft } from "./staff-workspace";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { CompanySettings, StaffIdentity } from "@whistle/shared";
-import { defaultSettings } from "@whistle/shared";
+import {
+  admissionModes,
+  defaultSettings,
+  type AdmissionMode,
+  type CompanySettings,
+  type StaffIdentity,
+} from "@whistle/shared";
 import { Check, ErrorBox, Field, Select, Text, useAction } from "./common";
 type Staff = StaffIdentity & { active: boolean; mfa_enrolled: boolean };
 type Team = {
@@ -412,6 +417,22 @@ export function Admin({ section }: { section: AdminSection }) {
                     }
                   />
                 ))}
+                <Select
+                  label={t("admissionMode")}
+                  value={settings.admissionMode ?? "directory"}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      admissionMode: e.target.value as AdmissionMode,
+                    })
+                  }
+                >
+                  {admissionModes.map((m) => (
+                    <option key={m} value={m}>
+                      {t(`admission_${m}`)}
+                    </option>
+                  ))}
+                </Select>
               </div>
             </details>
             <details data-settings-group="retention">

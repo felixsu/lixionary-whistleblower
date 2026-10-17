@@ -9,6 +9,7 @@ import {
   employeeUpdateSchema,
   employeeQuerySchema,
   type EmployeeInput,
+  type AdmissionMode,
 } from "@whistle/shared";
 import {
   digest,
@@ -20,13 +21,29 @@ import {
   emailConfigured,
 } from "@whistle/runtime";
 import { rows, type Tx } from "./db/client.js";
-import { csrf, internalAuth, PrivacyError, queue } from "./service.js";
+import {
+  caseCall,
+  csrf,
+  internalAuth,
+  PrivacyError,
+  queue,
+} from "./service.js";
 import type { Config } from "./config.js";
 const rawToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 export const accessToken = (req: FastifyRequest) =>
   rawToken.safeParse(req.headers["x-report-access"]).data ?? "";
 export const emailHash = (config: Config, email: string) =>
   mac(config.abuseKey, `employee:${email}`);
+async function currentAdmissionMode(config: Config): Promise<AdmissionMode> {
+  try {
+    const r = (await (await caseCall(config, "configuration", {})).json()) as {
+      settings?: { admissionMode?: AdmissionMode };
+    };
+    return r.settings?.admissionMode ?? "directory";
+  } catch {
+    return "directory";
+  }
+}
 
 // All operations on a grant share a nonblocking transaction lock, including AI.
 // The employee lock serializes deactivation/email edits with access checks.
@@ -48,7 +65,7 @@ export async function grant(tx: Tx, raw: string, allowExpired = false) {
     );
   const [g] = await rows(
     tx,
-    sql`select g.* from admission_grants g join employees e on e.id=g.employee_id where g.token_hash=${hash} and g.revoked_at is null and g.reserved_at is null and e.active ${allowExpired ? sql`` : sql`and g.expires_at>now()`} for update of g for share of e`,
+    sql`select g.* from admission_grants g left join employees e on e.id=g.employee_id where g.token_hash=${hash} and g.revoked_at is null and g.reserved_at is null and (g.employee_id is null or e.active) ${allowExpired ? sql`` : sql`and g.expires_at>now()`} for update of g`,
   );
   if (!g) throw new PrivacyError(401, "report_access_required");
   return g;
@@ -83,8 +100,12 @@ export async function admissionRoutes(app: FastifyInstance) {
           sql`select active from employees where email_hash=${hash}`,
         );
         if (employee && !employee.active) return { status: "disabled" };
-        if (v.purpose === "report" && !employee)
-          return { status: "unregistered" };
+        if (v.purpose === "report" && !employee) {
+          const mode = await currentAdmissionMode(config);
+          if (mode === "directory") return { status: "unregistered" };
+          if (mode === "directory_or_request")
+            return { status: "unregistered", canRequestAccess: true };
+        }
         if (v.purpose === "request" && employee)
           throw new PrivacyError(409, "employee_exists");
         if (!emailConfigured(config.email))
@@ -179,8 +200,14 @@ export async function admissionRoutes(app: FastifyInstance) {
             );
             return { requestToken: raw, expiresIn: 900 };
           }
-          if (!e?.active) return null;
+          if (e && !e.active) return null;
+          if (
+            !e &&
+            (await currentAdmissionMode(config)) !== "any_verified_email"
+          )
+            return null;
           if (v.resumeToken) {
+            if (!e) return null;
             const g = await grant(tx, v.resumeToken, true);
             if (g.employee_id !== e.id) return null;
             await rows(
@@ -193,7 +220,7 @@ export async function admissionRoutes(app: FastifyInstance) {
             raw = token();
           await rows(
             tx,
-            sql`insert into admission_grants(id,token_hash,employee_id,expires_at) values(${id},${digest(raw)},${e.id},now()+interval '2 hours')`,
+            sql`insert into admission_grants(id,token_hash,employee_id,expires_at) values(${id},${digest(raw)},${e?.id ?? null},now()+interval '2 hours')`,
           );
           return { reportToken: raw, expiresIn: 7200 };
         });

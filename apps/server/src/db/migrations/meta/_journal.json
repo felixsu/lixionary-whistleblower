@@ -57,6 +57,13 @@
       "when": 1791723600007,
       "tag": "0007_message_retries",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791723600008,
+      "tag": "0008_iso37002",
+      "breakpoints": true
     }
   ]
 }

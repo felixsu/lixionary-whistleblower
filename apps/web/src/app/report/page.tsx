@@ -13,7 +13,11 @@ import {
   ErrorBox,
   Receipt,
 } from "@/components/suite/common";
-import type { CompanySettings } from "@whistle/shared";
+import {
+  reporterRelationships,
+  type CompanySettings,
+  type ReporterRelationship,
+} from "@whistle/shared";
 type Company = Pick<
   CompanySettings,
   | "companyName"
@@ -65,6 +69,8 @@ export default function Report() {
     [summary, setSummary] = useState(""),
     [category, setCategory] = useState("other"),
     [unit, setUnit] = useState(""),
+    [relationship, setRelationship] =
+      useState<ReporterRelationship>("employee"),
     [sensitive, setSensitive] = useState(false),
     [review, setReview] = useState(false),
     [policy, setPolicy] = useState(false);
@@ -159,6 +165,7 @@ export default function Report() {
                       summary,
                       category,
                       businessUnit: unit,
+                      relationship,
                       sensitive,
                       details,
                       locale: lang,
@@ -246,6 +253,19 @@ export default function Report() {
                   />
                 ))}
               </details>
+              <Select
+                label={t("relationship")}
+                value={relationship}
+                onChange={(e) =>
+                  setRelationship(e.target.value as ReporterRelationship)
+                }
+              >
+                {reporterRelationships.map((r) => (
+                  <option key={r} value={r}>
+                    {t(`rel_${r}`)}
+                  </option>
+                ))}
+              </Select>
               <Select
                 label={t("category")}
                 value={category}

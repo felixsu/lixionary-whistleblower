@@ -4,9 +4,9 @@ An internal employee reporting portal with email OTP admission, anonymous submis
 
 The employee directory, access requests, reporter contacts, and raw assistant conversations live in a separate service, database, encryption keyring, and file vault. Administrators manage employee name/email/phone records separately from staff accounts; reviewers cannot access the directory. Analysts, managers, and system administrators have no contact-reveal endpoint. OTP proves control of a contact destination; it does not prove a person's legal identity. Reporters review their narrative and sanitized evidence before staff receive them.
 
-Creating a report requires an email registered and active in the employee directory. Unknown or inactive addresses are rejected without a report OTP or access-request form. Registered reporters verify a six-digit email OTP before filling the report form. Directory eligibility does not require a staff account, and the email is not included in the submitted report.
+Creating a report supports configurable admission modes (`directory`, `directory_or_request`, or `any_verified_email`), defaulting to strict employee directory verification. Registered or eligible reporters verify a six-digit email OTP before filling the report form, which also captures the reporter's organizational relationship (`employee`, `contractor_supplier`, `former_staff`, `shareholder_board`, `external_public`, or `prefer_not_to_say`). Directory eligibility does not require a staff account, and the email is not included in the submitted report.
 
-`main` contains the new suite. `main-mvp` preserves the original MVP without the gap assessment. This implementation starts with **new suite databases and volumes**; it does not migrate or import MVP reports.
+`main` contains the new suite, including ISO 37002:2021 (_Whistleblowing management systems — Guidelines_) alignment for broader stakeholder admission, anti-retaliation detriment assessment and reporting, procedural fairness and subject right-to-be-heard checks, root-cause and systemic action tracking, anonymous post-closure reporter surveys, and effectiveness analytics. `main-mvp` preserves the original MVP without the gap assessment. This implementation starts with **new suite databases and volumes**; it does not migrate or import MVP reports.
 
 ## Run locally
 
@@ -65,7 +65,7 @@ The tracker is disabled until configured. See [Jira configuration](docs/runbook.
 
 ## Versioning
 
-The root `package.json` is the release-version source of truth. All workspace packages share version `0.7.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
+The root `package.json` is the release-version source of truth. All workspace packages share version `0.8.0`. The footer on reporter and staff screens shows the version; its tooltip includes the build revision. Build metadata is embedded in the frontend assets and changes only after rebuilding.
 
 ```sh
 pnpm version:check          # Validate every workspace package

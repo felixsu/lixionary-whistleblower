@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { states, outcomes, bodySchema } from "@whistle/shared";
+import {
+  states,
+  outcomes,
+  detrimentRisks,
+  rootCauses,
+  subjectResponseStatuses,
+  bodySchema,
+} from "@whistle/shared";
 import { requireStaff } from "../auth.js";
 import { rows } from "../db/client.js";
 import {
@@ -37,7 +44,7 @@ export async function caseRoutes(app: FastifyInstance) {
     const s = await settings(db);
     const list = await rows(
       db,
-      sql`select c.id,c.case_code,c.state,c.category,c.severity,c.sensitive,c.owner_id,c.team_id,c.created_at,c.updated_at,c.closed_at,c.acknowledged_at,c.last_response_at,
+      sql`select c.id,c.case_code,c.state,c.category,c.severity,c.sensitive,c.detriment_risk,c.detriment_flagged,c.owner_id,c.team_id,c.created_at,c.updated_at,c.closed_at,c.acknowledged_at,c.last_response_at,
    exists(select 1 from case_messages m where m.case_id=c.id and m.author='reporter' and m.created_at>coalesce((select read_at from case_members cm where cm.case_id=c.id and cm.staff_id=${req.staff!.id}),'epoch')) unread,
    c.state<>'closed' and (c.acknowledged_at is null and c.created_at<now()-${s.body.acknowledgmentDays}*interval '1 day' or coalesce(c.last_response_at,c.created_at)<now()-${s.body.followupDays}*interval '1 day') overdue
    from cases c where ${access(req.staff!)} ${q.state ? sql`and c.state=${q.state}` : sql``} ${q.category ? sql`and c.category=${q.category}` : sql``} order by c.updated_at desc limit 50 offset ${(q.page - 1) * 50}`,
@@ -137,6 +144,19 @@ export async function caseRoutes(app: FastifyInstance) {
     });
     return { ok: true };
   });
+  app.post("/:id/acknowledge", async (req) => {
+    await db.transaction(async (tx) => {
+      const c = await allowedCase(tx, req.staff!, id(req), true);
+      if (c.state === "closed") fail("case_closed");
+      await rows(
+        tx,
+        sql`update cases set acknowledged_at=coalesce(acknowledged_at,now()),last_response_at=now(),updated_at=now() where id=${c.id}`,
+      );
+      await audit(tx, req.staff!.id, "case_acknowledged", c.id);
+      await enqueue(tx, "reporter_notify", c.id, { event: "acknowledged" });
+    });
+    return { ok: true };
+  });
   app.post("/:id/messages", async (req) => {
     const v = bodySchema.parse(req.body);
     const mid = randomUUID();
@@ -215,21 +235,41 @@ export async function caseRoutes(app: FastifyInstance) {
       .object({
         severity: z.enum(["normal", "high", "critical"]),
         category: z.string().max(80),
+        detrimentRisk: z.enum(detrimentRisks).optional(),
+        protectionPlan: z.string().trim().max(4000).optional(),
       })
       .parse(req.body);
     const s = await settings(db);
     if (!s.body.categories.some((c) => c.key === v.category))
       throw new HttpError(400, "Category", "validation_error");
+    if (
+      v.detrimentRisk &&
+      ["elevated", "critical"].includes(v.detrimentRisk) &&
+      (!v.protectionPlan || v.protectionPlan.length < 10)
+    )
+      throw new HttpError(400, "Protection plan required", "validation_error");
     await db.transaction(async (tx) => {
       const c = await allowedCase(tx, req.staff!, id(req), true);
       if (c.state === "closed") fail("case_closed");
+      const nextRisk = v.detrimentRisk ?? c.detriment_risk ?? "unassessed";
+      const planEnc =
+        v.protectionPlan !== undefined
+          ? v.protectionPlan
+            ? seal(v.protectionPlan, config.keys, `protection:${c.id}`)
+            : null
+          : (c.protection_plan_enc ?? null);
+      const nextFlagged =
+        v.detrimentRisk && v.detrimentRisk !== "unassessed"
+          ? false
+          : Boolean(c.detriment_flagged);
       await rows(
         tx,
-        sql`update cases set severity=${v.severity},category=${v.category},updated_at=now() where id=${c.id}`,
+        sql`update cases set severity=${v.severity},category=${v.category},detriment_risk=${nextRisk},protection_plan_enc=${planEnc},detriment_flagged=${nextFlagged},updated_at=now() where id=${c.id}`,
       );
       await audit(tx, req.staff!.id, "case_classified", c.id, {
         severity: v.severity,
         category: v.category,
+        ...(v.detrimentRisk ? { detrimentRisk: v.detrimentRisk } : {}),
       });
     });
     return { ok: true };
@@ -302,6 +342,36 @@ export async function caseRoutes(app: FastifyInstance) {
         outcome: z.enum(outcomes),
         rationale: z.string().trim().min(20).max(10000),
         publicExplanation: z.string().trim().min(20).max(4000),
+        rootCause: z.enum(rootCauses).default("not_applicable"),
+        proceduralFairness: z
+          .object({
+            conflictChecked: z.literal(true),
+            subjectConfidentialityProtected: z.literal(true),
+            subjectResponseStatus: z
+              .enum(subjectResponseStatuses)
+              .default("not_applicable"),
+            subjectResponseRationale: z.string().trim().max(4000).default(""),
+          })
+          .optional(),
+      })
+      .superRefine((val, ctx) => {
+        if (
+          val.proceduralFairness &&
+          ["substantiated", "partially_substantiated"].includes(val.outcome)
+        ) {
+          if (val.proceduralFairness.subjectResponseStatus === "not_applicable")
+            ctx.addIssue({
+              code: "custom",
+              message:
+                "Subject response status is required for substantiated outcomes",
+            });
+          if (val.proceduralFairness.subjectResponseRationale.length < 10)
+            ctx.addIssue({
+              code: "custom",
+              message:
+                "Subject response rationale is required for substantiated outcomes",
+            });
+        }
       })
       .parse(req.body);
     await db.transaction(async (tx) => {
@@ -315,10 +385,11 @@ export async function caseRoutes(app: FastifyInstance) {
       if (open) fail("open_corrective_actions");
       await rows(
         tx,
-        sql`update cases set state='closure_review',closure=${JSON.stringify({ outcome: v.outcome, requestedBy: req.staff!.id })}::jsonb,closure_enc=${seal({ ...v, requestedBy: req.staff!.id }, config.keys, `closure:${c.id}`)},updated_at=now() where id=${c.id}`,
+        sql`update cases set state='closure_review',closure=${JSON.stringify({ outcome: v.outcome, rootCause: v.rootCause, requestedBy: req.staff!.id })}::jsonb,closure_enc=${seal({ ...v, requestedBy: req.staff!.id }, config.keys, `closure:${c.id}`)},updated_at=now() where id=${c.id}`,
       );
       await audit(tx, req.staff!.id, "closure_requested", c.id, {
         outcome: v.outcome,
+        rootCause: v.rootCause,
       });
       await enqueue(tx, "staff_alert", c.id, { event: "closure_review" });
     });

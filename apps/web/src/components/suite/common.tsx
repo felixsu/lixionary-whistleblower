@@ -358,6 +358,113 @@ export const strings = {
   policyHistory: ["Policy history", "Riwayat kebijakan"],
   savedChanges: ["Changes saved", "Perubahan tersimpan"],
   noEvidence: ["No shared evidence yet.", "Belum ada bukti yang dibagikan."],
+  admissionMode: ["Reporter admission mode", "Mode akses pelapor"],
+  admission_directory: ["Employee directory only", "Hanya direktori karyawan"],
+  admission_directory_or_request: [
+    "Employee directory or access request",
+    "Direktori karyawan atau permintaan akses",
+  ],
+  admission_any_verified_email: [
+    "Any verified email address",
+    "Semua alamat email terverifikasi",
+  ],
+  relationship: ["Relationship to organization", "Hubungan dengan organisasi"],
+  rel_employee: ["Current employee", "Karyawan saat ini"],
+  rel_former_employee: ["Former employee", "Mantan karyawan"],
+  rel_contractor_supplier: [
+    "Contractor or supplier",
+    "Kontraktor atau pemasok",
+  ],
+  rel_external: ["External stakeholder", "Pihak eksternal"],
+  acknowledgeReceipt: [
+    "Acknowledge formal receipt",
+    "Konfirmasi penerimaan resmi",
+  ],
+  acknowledgedOn: ["Acknowledged", "Dikonfirmasi"],
+  acknowledgmentDue: ["Acknowledgment due", "Batas konfirmasi"],
+  nextFollowupDue: ["Next follow-up due", "Batas tindak lanjut berikutnya"],
+  detrimentRisk: ["Detriment risk level", "Tingkat risiko balasan/detrimen"],
+  risk_unassessed: ["Unassessed", "Belum dinilai"],
+  risk_low: ["Low", "Rendah"],
+  risk_elevated: ["Elevated", "Tinggi"],
+  risk_critical: ["Critical", "Kritis"],
+  protectionPlan: ["Reporter protection plan", "Rencana perlindungan pelapor"],
+  detrimentHeading: [
+    "Report retaliation or detriment",
+    "Laporkan tindakan balasan atau detrimen",
+  ],
+  detrimentNotice: [
+    "If you experience retaliation, intimidation, or disadvantage related to this report, submit details here at any time—even after closure.",
+    "Jika Anda mengalami tindakan balasan, intimidasi, atau kerugian terkait laporan ini, kirim rinciannya di sini kapan saja—bahkan setelah kasus ditutup.",
+  ],
+  submitDetriment: ["Submit detriment report", "Kirim laporan detrimen"],
+  detrimentReports: [
+    "Retaliation / detriment reports",
+    "Laporan tindakan balasan / detrimen",
+  ],
+  detrimentFlagged: [
+    "Detriment reported — reassessment needed",
+    "Detrimen dilaporkan — perlu penilaian ulang",
+  ],
+  rootCause: ["Root cause category", "Kategori akar penyebab"],
+  rc_control_gap: ["Control gap", "Celah pengendalian"],
+  rc_policy_gap: ["Policy gap", "Celah kebijakan"],
+  rc_training_gap: ["Training / awareness gap", "Celah pelatihan / kesadaran"],
+  rc_culture_leadership: ["Culture / leadership", "Budaya / kepemimpinan"],
+  rc_individual_misconduct: ["Individual misconduct", "Pelanggaran individu"],
+  rc_third_party: ["Third-party / vendor", "Pihak ketiga / vendor"],
+  rc_not_applicable: ["Not applicable", "Tidak berlaku"],
+  proceduralFairness: [
+    "Procedural fairness & subject safeguards (ISO 37002)",
+    "Keadilan prosedural & perlindungan terlapor (ISO 37002)",
+  ],
+  conflictChecked: [
+    "Team independence and absence of conflict of interest verified",
+    "Independensi tim dan ketiadaan konflik kepentingan telah diverifikasi",
+  ],
+  subjectConfidentialityProtected: [
+    "Identity and confidentiality of subjects/third parties protected",
+    "Identitas dan kerahasiaan pihak terlapor/pihak ketiga dilindungi",
+  ],
+  subjectResponseStatus: [
+    "Subject right to be heard",
+    "Hak pihak terlapor untuk didengar",
+  ],
+  srs_not_applicable: ["Not applicable", "Tidak berlaku"],
+  srs_heard: [
+    "Subject was given opportunity to respond",
+    "Terlapor telah diberi kesempatan menanggapi",
+  ],
+  srs_deferred_legal_or_safety: [
+    "Deferred for legal, evidence, or safety risk",
+    "Ditunda karena risiko hukum, bukti, atau keselamatan",
+  ],
+  subjectResponseRationale: [
+    "Subject response or deferral summary",
+    "Ringkasan tanggapan terlapor atau alasan penundaan",
+  ],
+  feedbackHeading: [
+    "Post-closure process feedback (optional)",
+    "Umpan balik proses pasca-penutupan (opsional)",
+  ],
+  feedbackTrust: ["Trust in process (1–5)", "Kepercayaan pada proses (1–5)"],
+  feedbackCommunication: [
+    "Clarity of communication (1–5)",
+    "Kejelasan komunikasi (1–5)",
+  ],
+  feedbackProtection: [
+    "Confidence in protection (1–5)",
+    "Keyakinan atas perlindungan (1–5)",
+  ],
+  submitFeedback: ["Submit feedback", "Kirim umpan balik"],
+  feedbackSubmitted: [
+    "Thank you. Your anonymous process feedback has been recorded.",
+    "Terima kasih. Umpan balik anonim Anda telah tercatat.",
+  ],
+  slaMetrics: ["SLA timeliness", "Ketepatan waktu SLA"],
+  rootCausesMetrics: ["Root causes", "Akar penyebab"],
+  detrimentMetrics: ["Protection & detriment", "Perlindungan & detrimen"],
+  feedbackMetrics: ["Reporter feedback", "Umpan balik pelapor"],
 } satisfies Record<string, readonly [string, string]>;
 export type Lang = "en" | "id";
 export function useLanguage() {
@@ -697,6 +804,10 @@ const errors: Record<string, [string, string]> = {
   invalid_transition: [
     "This status change is unavailable.",
     "Perubahan status ini tidak tersedia.",
+  ],
+  feedback_exists: [
+    "Feedback has already been submitted for this case.",
+    "Umpan balik sudah pernah dikirim untuk kasus ini.",
   ],
   case_closed: [
     "This case is closed. Request reopening to continue.",

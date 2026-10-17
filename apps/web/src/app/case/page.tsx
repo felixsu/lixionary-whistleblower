@@ -21,6 +21,20 @@ type Case = {
   caseCode: string;
   state: string;
   content: { title: string; summary: string; details?: Record<string, string> };
+  acknowledgedAt?: string | null;
+  acknowledgmentDueAt?: string | null;
+  nextFollowupDueAt?: string | null;
+  feedback?: {
+    trust: number;
+    communication: number;
+    protection: number;
+    submittedAt?: string;
+  } | null;
+  detrimentReports?: {
+    id: string;
+    body: { text?: string };
+    created_at: string;
+  }[];
   messages: { id: string; author: string; body: string; createdAt: string }[];
   verification: { state: string };
   verificationRequests: { id: string; state: string; reason: string }[];
@@ -48,7 +62,12 @@ export default function Portal() {
       recoveryCode: string;
     }>(),
     [body, setBody] = useState(""),
-    [review, setReview] = useState(false);
+    [review, setReview] = useState(false),
+    [detrimentBody, setDetrimentBody] = useState(""),
+    [detrimentReview, setDetrimentReview] = useState(false),
+    [fbTrust, setFbTrust] = useState(5),
+    [fbCommunication, setFbCommunication] = useState(5),
+    [fbProtection, setFbProtection] = useState(5);
   const [contacts, setContacts] = useState<Contact[]>([]),
     [kind, setKind] = useState("email"),
     [destination, setDestination] = useState(""),
@@ -155,6 +174,16 @@ export default function Portal() {
                   <strong>{t(key)}:</strong> {value}
                 </p>
               ))}
+            <p className="muted">
+              {report.acknowledgedAt
+                ? `${t("acknowledgedOn")}: ${new Date(report.acknowledgedAt).toLocaleDateString(lang)}`
+                : report.acknowledgmentDueAt
+                  ? `${t("acknowledgmentDue")}: ${new Date(report.acknowledgmentDueAt).toLocaleDateString(lang)}`
+                  : null}
+              {report.nextFollowupDueAt
+                ? ` · ${t("nextFollowupDue")}: ${new Date(report.nextFollowupDueAt).toLocaleDateString(lang)}`
+                : null}
+            </p>
             {report.publicOutcome && <p>{report.publicOutcome}</p>}
             <button
               onClick={() =>
@@ -256,6 +285,111 @@ export default function Portal() {
               </button>
             </form>
           </section>
+          <section>
+            <h2>{t("detrimentHeading")}</h2>
+            <p className="muted">{t("detrimentNotice")}</p>
+            {(report.detrimentReports ?? []).map((d) => (
+              <article key={d.id}>
+                <small>{new Date(d.created_at).toLocaleString(lang)}</small>
+                <p>{d.body?.text}</p>
+              </article>
+            ))}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void a.run(async () => {
+                  await api("/api/reporter/detriment", {
+                    method: "POST",
+                    body: { body: detrimentBody, privacyReviewed: true },
+                  });
+                  setDetrimentBody("");
+                  setDetrimentReview(false);
+                  await load();
+                });
+              }}
+            >
+              <Text
+                label={t("detrimentHeading")}
+                required
+                minLength={10}
+                maxLength={10000}
+                value={detrimentBody}
+                onChange={(e) => {
+                  setDetrimentBody(e.target.value);
+                  setDetrimentReview(false);
+                }}
+              />
+              <Check
+                label={t("review")}
+                required
+                checked={detrimentReview}
+                onChange={(e) => setDetrimentReview(e.target.checked)}
+              />
+              <button disabled={a.busy || !detrimentReview}>
+                {t("submitDetriment")}
+              </button>
+            </form>
+          </section>
+          {report.state === "closed" && (
+            <section>
+              <h2>{t("feedbackHeading")}</h2>
+              {report.feedback ? (
+                <p role="status">{t("feedbackSubmitted")}</p>
+              ) : (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void a.run(async () => {
+                      await api("/api/reporter/feedback", {
+                        method: "POST",
+                        body: {
+                          trust: fbTrust,
+                          communication: fbCommunication,
+                          protection: fbProtection,
+                        },
+                      });
+                      await load();
+                    });
+                  }}
+                >
+                  <Select
+                    label={t("feedbackTrust")}
+                    value={String(fbTrust)}
+                    onChange={(e) => setFbTrust(Number(e.target.value))}
+                  >
+                    {[5, 4, 3, 2, 1].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    label={t("feedbackCommunication")}
+                    value={String(fbCommunication)}
+                    onChange={(e) => setFbCommunication(Number(e.target.value))}
+                  >
+                    {[5, 4, 3, 2, 1].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    label={t("feedbackProtection")}
+                    value={String(fbProtection)}
+                    onChange={(e) => setFbProtection(Number(e.target.value))}
+                  >
+                    {[5, 4, 3, 2, 1].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </Select>
+                  <button disabled={a.busy}>{t("submitFeedback")}</button>
+                </form>
+              )}
+            </section>
+          )}
           <section>
             <h2>{t("contacts")}</h2>
             <p>{t("verifyMeaning")}</p>

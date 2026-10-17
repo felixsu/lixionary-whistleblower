@@ -4,12 +4,19 @@ import type { CaseSection } from "./staff-navigation";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { outcomes, type StaffIdentity } from "@whistle/shared";
+import {
+  outcomes,
+  detrimentRisks,
+  rootCauses,
+  subjectResponseStatuses,
+  type StaffIdentity,
+} from "@whistle/shared";
 import {
   Check,
   ErrorBox,
   Field,
   Select,
+  StatusBadge,
   Text,
   useAction,
   type Lang,
@@ -22,12 +29,24 @@ export type InvestigationCase = {
   category: string;
   severity: string;
   sensitive: boolean;
-  content: { title: string; summary: string; details?: Record<string, string> };
+  detrimentRisk?: string;
+  detrimentFlagged?: boolean;
+  protectionPlan?: string | null;
+  acknowledgedAt?: string | null;
+  acknowledgmentDueAt?: string | null;
+  nextFollowupDueAt?: string | null;
+  content: {
+    title: string;
+    summary: string;
+    relationship?: string;
+    details?: Record<string, string>;
+  };
   messages: { id: string; author: string; body: string; createdAt: string }[];
   verification: { state: string };
   notes: Row[];
   findings: Row[];
   tasks: Row[];
+  detrimentReports?: Row[];
   evidence: Row[];
   hold: boolean;
   closure: Row | null;
@@ -79,13 +98,36 @@ export function Investigation({
       outcomes[0],
     ),
     [rationale, setRationale] = useDraftState(prefix + "rationale", ""),
-    [explanation, setExplanation] = useDraftState(prefix + "explanation", "");
+    [explanation, setExplanation] = useDraftState(prefix + "explanation", ""),
+    [rootCause, setRootCause] = useDraftState<string>(
+      prefix + "rootCause",
+      "not_applicable",
+    ),
+    [conflictChecked, setConflictChecked] = useState(true),
+    [subjectConfidentialityProtected, setSubjectConfidentialityProtected] =
+      useState(true),
+    [subjectResponseStatus, setSubjectResponseStatus] = useDraftState<string>(
+      prefix + "subjectResponseStatus",
+      "not_applicable",
+    ),
+    [subjectResponseRationale, setSubjectResponseRationale] = useDraftState(
+      prefix + "subjectResponseRationale",
+      "",
+    );
   const manager = user.role === "manager";
   const [categories, setCategories] = useState<
       { key: string; en: string; id: string }[]
     >([]),
     [category, setCategory] = useDraftState(prefix + "category", r.category),
-    [severity, setSeverity] = useDraftState(prefix + "severity", r.severity);
+    [severity, setSeverity] = useDraftState(prefix + "severity", r.severity),
+    [detrimentRisk, setDetrimentRisk] = useDraftState(
+      prefix + "detrimentRisk",
+      r.detrimentRisk ?? "unassessed",
+    ),
+    [protectionPlan, setProtectionPlan] = useDraftState(
+      prefix + "protectionPlan",
+      r.protectionPlan ?? "",
+    );
   useEffect(() => {
     if (section !== "") return;
     void api<{ categories: { key: string; en: string; id: string }[] }>(
@@ -107,10 +149,22 @@ export function Investigation({
     const fields: Record<string, string[]> = {
       messages: ["body"],
       records: ["record", "due", "owner", "kind"],
-      classification: ["category", "severity"],
+      classification: [
+        "category",
+        "severity",
+        "detrimentRisk",
+        "protectionPlan",
+      ],
       assign: ["owner"],
       verification: ["reason"],
-      closure: ["outcome", "rationale", "explanation"],
+      closure: [
+        "outcome",
+        "rationale",
+        "explanation",
+        "rootCause",
+        "subjectResponseStatus",
+        "subjectResponseRationale",
+      ],
       "closure/review": ["reviewReason"],
       hold: ["holdReason"],
       reopen: ["reopenReason"],
@@ -127,7 +181,34 @@ export function Investigation({
       {section === "" && (
         <>
           <section>
+            {r.detrimentFlagged && (
+              <p>
+                <StatusBadge state="overdue">
+                  {t("detrimentFlagged")}
+                </StatusBadge>
+              </p>
+            )}
             <p>{r.content.summary}</p>
+            {r.content.relationship && (
+              <p>
+                <strong>{t("relationship")}:</strong>{" "}
+                {t(`rel_${r.content.relationship}`)}
+              </p>
+            )}
+            {(r.acknowledgedAt ||
+              r.acknowledgmentDueAt ||
+              r.nextFollowupDueAt) && (
+              <p className="muted">
+                {r.acknowledgedAt
+                  ? `${t("acknowledgedOn")}: ${new Date(r.acknowledgedAt).toLocaleDateString(lang)}`
+                  : r.acknowledgmentDueAt
+                    ? `${t("acknowledgmentDue")}: ${new Date(r.acknowledgmentDueAt).toLocaleDateString(lang)}`
+                    : null}
+                {r.nextFollowupDueAt
+                  ? ` · ${t("nextFollowupDue")}: ${new Date(r.nextFollowupDueAt).toLocaleDateString(lang)}`
+                  : null}
+              </p>
+            )}
             {Object.entries(r.content.details ?? {})
               .filter(([, v]) => v)
               .map(([key, value]) => (
@@ -135,6 +216,14 @@ export function Investigation({
                   <strong>{t(key)}:</strong> {value}
                 </p>
               ))}
+            {!r.acknowledgedAt && r.state !== "closed" && (
+              <button
+                disabled={a.busy}
+                onClick={() => void a.run(() => action("acknowledge", {}))}
+              >
+                {t("acknowledgeReceipt")}
+              </button>
+            )}
             <button
               disabled={a.busy}
               onClick={() =>
@@ -217,6 +306,19 @@ export function Investigation({
               </form>
             )}
           </section>
+          {(r.detrimentReports?.length ?? 0) > 0 && (
+            <section>
+              <h2>{t("detrimentReports")}</h2>
+              {(r.detrimentReports ?? []).map((d) => (
+                <article key={String(d.id)}>
+                  <small>
+                    {new Date(String(d.created_at)).toLocaleString(lang)}
+                  </small>
+                  <p>{String((d.body as Row)?.text ?? "")}</p>
+                </article>
+              ))}
+            </section>
+          )}
         </>
       )}
       {section === "" && (
@@ -228,7 +330,12 @@ export function Investigation({
                 onSubmit={(e) => {
                   e.preventDefault();
                   void a.run(() =>
-                    action("classification", { category, severity }),
+                    action("classification", {
+                      category,
+                      severity,
+                      detrimentRisk,
+                      protectionPlan,
+                    }),
                   );
                 }}
               >
@@ -254,6 +361,23 @@ export function Investigation({
                     </option>
                   ))}
                 </Select>
+                <Select
+                  label={t("detrimentRisk")}
+                  value={detrimentRisk}
+                  onChange={(e) => setDetrimentRisk(e.target.value)}
+                >
+                  {detrimentRisks.map((dr) => (
+                    <option key={dr} value={dr}>
+                      {t(`risk_${dr}`)}
+                    </option>
+                  ))}
+                </Select>
+                <Text
+                  label={t("protectionPlan")}
+                  maxLength={4000}
+                  value={protectionPlan}
+                  onChange={(e) => setProtectionPlan(e.target.value)}
+                />
                 <button disabled={a.busy}>{t("save")}</button>
               </form>
               {manager && !r.sensitive && (
@@ -497,6 +621,18 @@ export function Investigation({
                       outcome,
                       rationale,
                       publicExplanation: explanation,
+                      rootCause,
+                      ...(subjectResponseStatus !== "not_applicable" ||
+                      subjectResponseRationale.trim().length > 0
+                        ? {
+                            proceduralFairness: {
+                              conflictChecked,
+                              subjectConfidentialityProtected,
+                              subjectResponseStatus,
+                              subjectResponseRationale,
+                            },
+                          }
+                        : {}),
                     }),
                   );
                 }}
@@ -509,6 +645,17 @@ export function Investigation({
                   {outcomes.map((o) => (
                     <option key={o} value={o}>
                       {t(o)}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  label={t("rootCause")}
+                  value={rootCause}
+                  onChange={(e) => setRootCause(e.target.value)}
+                >
+                  {rootCauses.map((rc) => (
+                    <option key={rc} value={rc}>
+                      {t(`rc_${rc}`)}
                     </option>
                   ))}
                 </Select>
@@ -526,7 +673,49 @@ export function Investigation({
                   value={explanation}
                   onChange={(e) => setExplanation(e.target.value)}
                 />
-                <button disabled={a.busy}>{t("closure")}</button>
+                <fieldset>
+                  <legend>{t("proceduralFairness")}</legend>
+                  <Check
+                    label={t("conflictChecked")}
+                    checked={conflictChecked}
+                    onChange={(e) => setConflictChecked(e.target.checked)}
+                  />
+                  <Check
+                    label={t("subjectConfidentialityProtected")}
+                    checked={subjectConfidentialityProtected}
+                    onChange={(e) =>
+                      setSubjectConfidentialityProtected(e.target.checked)
+                    }
+                  />
+                  <Select
+                    label={t("subjectResponseStatus")}
+                    value={subjectResponseStatus}
+                    onChange={(e) => setSubjectResponseStatus(e.target.value)}
+                  >
+                    {subjectResponseStatuses.map((srs) => (
+                      <option key={srs} value={srs}>
+                        {t(`srs_${srs}`)}
+                      </option>
+                    ))}
+                  </Select>
+                  <Text
+                    label={t("subjectResponseRationale")}
+                    maxLength={4000}
+                    value={subjectResponseRationale}
+                    onChange={(e) =>
+                      setSubjectResponseRationale(e.target.value)
+                    }
+                  />
+                </fieldset>
+                <button
+                  disabled={
+                    a.busy ||
+                    !conflictChecked ||
+                    !subjectConfidentialityProtected
+                  }
+                >
+                  {t("closure")}
+                </button>
               </form>
             </section>
           )}
@@ -538,6 +727,12 @@ export function Investigation({
             <section>
               <h2>{t("reviewClosure")}</h2>
               <p>{t(String(r.closure.outcome))}</p>
+              {!!r.closure.rootCause && (
+                <p>
+                  <strong>{t("rootCause")}:</strong>{" "}
+                  {t(`rc_${String(r.closure.rootCause)}`)}
+                </p>
+              )}
               <p>{String(r.closure.rationale)}</p>
               <p>{String(r.closure.publicExplanation)}</p>
               {manager && r.closure.requestedBy !== user.id && (

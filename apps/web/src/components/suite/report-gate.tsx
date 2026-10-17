@@ -23,9 +23,19 @@ export function ReportGate({
     alive = useRef(true);
   const [email, setEmail] = useState(""),
     [code, setCode] = useState(""),
-    [step, setStep] = useState<"email" | "unregistered" | "otp" | "disabled">(
-      "email",
-    ),
+    [step, setStep] = useState<
+      | "email"
+      | "unregistered"
+      | "otp"
+      | "disabled"
+      | "request_form"
+      | "request_sent"
+    >("email"),
+    [purpose, setPurpose] = useState<"report" | "request">("report"),
+    [canRequestAccess, setCanRequestAccess] = useState(false),
+    [requestToken, setRequestToken] = useState(""),
+    [reqName, setReqName] = useState(""),
+    [reqPhone, setReqPhone] = useState(""),
     [challenge, setChallenge] = useState<string>(),
     [resendAt, setResendAt] = useState(0),
     [seconds, setSeconds] = useState(0),
@@ -68,10 +78,11 @@ export function ReportGate({
       if (alive.current) setBusy(false);
     }
   }
-  async function send() {
+  async function send(nextPurpose: "report" | "request" = purpose) {
+    setPurpose(nextPurpose);
     const r = await api<AdmissionChallenge>("/privacy/admission/challenge", {
       method: "POST",
-      body: { email, purpose: "report", locale: lang },
+      body: { email, purpose: nextPurpose, locale: lang },
     });
     if (!alive.current) {
       if (r.status === "otp")
@@ -87,6 +98,9 @@ export function ReportGate({
       current.current = { challengeId: r.challengeId };
       setResendAt(Date.now() + r.resendAfter * 1000);
       setStep("otp");
+    } else if (r.status === "unregistered") {
+      setCanRequestAccess(Boolean(r.canRequestAccess));
+      setStep("unregistered");
     } else setStep(r.status);
   }
   const close = () => {
@@ -130,7 +144,7 @@ export function ReportGate({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              void run(() => send());
+              void run(() => send("report"));
             }}
           >
             <Select
@@ -187,6 +201,12 @@ export function ReportGate({
                         method: "POST",
                         body: { reportToken: r.reportToken },
                       });
+                  } else if ("requestToken" in r) {
+                    if (alive.current) {
+                      current.current = {};
+                      setRequestToken(r.requestToken);
+                      setStep("request_form");
+                    }
                   } else {
                     throw new Error(
                       text(
@@ -213,7 +233,7 @@ export function ReportGate({
             <button
               className="secondary"
               disabled={busy || seconds > 0}
-              onClick={() => void run(() => send())}
+              onClick={() => void run(() => send(purpose))}
             >
               {seconds > 0
                 ? text(`Resend in ${seconds}s`, `Kirim ulang dalam ${seconds}d`)
@@ -233,10 +253,67 @@ export function ReportGate({
           </>
         )}
         {step === "unregistered" && (
+          <>
+            <p role="status">
+              {text(
+                "This email is not registered. You cannot create a report. Contact your company administrator to register your email, then return to verify it.",
+                "Email ini belum terdaftar. Anda tidak dapat membuat laporan. Hubungi administrator perusahaan untuk mendaftarkan email Anda, lalu kembali untuk memverifikasinya.",
+              )}
+            </p>
+            {canRequestAccess && (
+              <button
+                disabled={busy}
+                onClick={() => void run(() => send("request"))}
+              >
+                {text(
+                  "Verify email to request access",
+                  "Verifikasi email untuk meminta akses",
+                )}
+              </button>
+            )}
+          </>
+        )}
+        {step === "request_form" && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                await api("/privacy/admission/requests", {
+                  method: "POST",
+                  body: {
+                    name: reqName,
+                    email,
+                    phone: reqPhone,
+                    requestToken,
+                  },
+                });
+                setStep("request_sent");
+              });
+            }}
+          >
+            <Field
+              label={text("Full name", "Nama lengkap")}
+              required
+              maxLength={100}
+              value={reqName}
+              onChange={(e) => setReqName(e.target.value)}
+            />
+            <Field
+              label={text("Phone (+628123456789)", "Telepon (+628123456789)")}
+              required
+              value={reqPhone}
+              onChange={(e) => setReqPhone(e.target.value)}
+            />
+            <button disabled={busy}>
+              {text("Submit access request", "Kirim permintaan akses")}
+            </button>
+          </form>
+        )}
+        {step === "request_sent" && (
           <p role="status">
             {text(
-              "This email is not registered. You cannot create a report. Contact your company administrator to register your email, then return to verify it.",
-              "Email ini belum terdaftar. Anda tidak dapat membuat laporan. Hubungi administrator perusahaan untuk mendaftarkan email Anda, lalu kembali untuk memverifikasinya.",
+              "Your access request has been submitted for administrator review.",
+              "Permintaan akses Anda telah dikirim untuk ditinjau administrator.",
             )}
           </p>
         )}

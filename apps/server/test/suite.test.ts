@@ -2386,4 +2386,288 @@ describe("suite privacy and workflow boundaries", () => {
       await rows(caseStore.db, sql`select * from rate_limits where key=${key}`),
     ).toHaveLength(0);
   });
+  it("supports ISO 37002 configurable admission modes and stakeholder relationships", async () => {
+    counts.clear();
+    const [before] = await rows(
+      caseStore.db,
+      sql`select body from settings where id=1`,
+    );
+    try {
+      await rows(
+        caseStore.db,
+        sql`update settings set body=jsonb_set(body,'{admissionMode}','"directory_or_request"'::jsonb) where id=1`,
+      );
+      const unknownEmail = `contractor-${randomUUID()}@example.test`;
+      const ch1 = await admission("challenge", {
+        email: unknownEmail,
+        purpose: "report",
+      });
+      expect(ch1.statusCode).toBe(200);
+      expect(ch1.json()).toEqual({
+        status: "unregistered",
+        canRequestAccess: true,
+      });
+
+      await rows(
+        caseStore.db,
+        sql`update settings set body=jsonb_set(body,'{admissionMode}','"any_verified_email"'::jsonb) where id=1`,
+      );
+      const openEmail = `open-${randomUUID()}@example.test`;
+      const ch2 = await admission("challenge", {
+        email: openEmail,
+        purpose: "report",
+      });
+      expect(ch2.statusCode).toBe(200);
+      expect(ch2.json().status).toBe("otp");
+      const cid = ch2.json().challengeId as string;
+      const verified = await admission("verify", {
+        challengeId: cid,
+        code: await admissionCode(cid),
+      });
+      expect(verified.statusCode).toBe(200);
+      expect(verified.json().reportToken).toBeTypeOf("string");
+
+      const submission = {
+        pin: token(),
+        recoveryCode: token(),
+        submissionToken: token(),
+      };
+      reportAdmissions.set(
+        submission.submissionToken,
+        verified.json().reportToken,
+      );
+      const created = await call("/api/reporter/reports", {
+        submission,
+        title: "External supplier bribery concern",
+        summary:
+          "A third-party supplier observed improper solicitation during tender evaluation.",
+        category: "corruption",
+        relationship: "contractor_supplier",
+        privacyReviewed: true,
+        policyVersion: 1,
+      });
+      expect(created.statusCode).toBe(201);
+      const repView = await call(
+        "/api/reporter/case",
+        undefined,
+        cookie(created),
+      );
+      expect(repView.json().content.relationship).toBe("contractor_supplier");
+    } finally {
+      await rows(
+        caseStore.db,
+        sql`update settings set body=${JSON.stringify(before!.body)}::jsonb where id=1`,
+      );
+    }
+  });
+  it("enforces ISO 37002 acknowledgment, detriment protection, procedural fairness, post-closure detriment and k-anonymous feedback analytics", async () => {
+    const created = await call("/api/reporter/reports", {
+      title: "Retaliation and procedural fairness test case",
+      summary:
+        "A detailed concern testing formal acknowledgment, detriment protection, procedural fairness, and feedback.",
+      category: "harassment",
+      relationship: "former_employee",
+      privacyReviewed: true,
+      policyVersion: 1,
+    });
+    expect(created.statusCode).toBe(201);
+    const repCookie = cookie(created);
+    const initialView = (
+      await call("/api/reporter/case", undefined, repCookie)
+    ).json();
+    const cid = initialView.id as string;
+    expect(initialView.acknowledgedAt).toBeNull();
+    expect(initialView.acknowledgmentDueAt).toBeTypeOf("string");
+    expect(initialView.nextFollowupDueAt).toBeTypeOf("string");
+
+    // Formal receipt acknowledgment (Clause 8.2)
+    expect(
+      (await call(`/api/cases/${cid}/acknowledge`, {}, cookies.manager))
+        .statusCode,
+    ).toBe(200);
+    const ackView = (
+      await call("/api/reporter/case", undefined, repCookie)
+    ).json();
+    expect(ackView.acknowledgedAt).toBeTypeOf("string");
+
+    // Detriment risk assessment requires protection plan when elevated/critical (Clause 8.3)
+    expect(
+      (
+        await call(
+          `/api/cases/${cid}/classification`,
+          {
+            category: "harassment",
+            severity: "high",
+            detrimentRisk: "elevated",
+            protectionPlan: "short",
+          },
+          cookies.manager,
+        )
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          `/api/cases/${cid}/classification`,
+          {
+            category: "harassment",
+            severity: "high",
+            detrimentRisk: "elevated",
+            protectionPlan:
+              "Restrict access to HR personnel files and monitor supervisor assignment changes.",
+          },
+          cookies.manager,
+        )
+      ).statusCode,
+    ).toBe(200);
+
+    // Protection plan is encrypted at rest and visible to staff, not reporter
+    const staffView = (
+      await call(`/api/cases/${cid}`, undefined, cookies.manager)
+    ).json();
+    expect(staffView.detrimentRisk).toBe("elevated");
+    expect(staffView.protectionPlan).toContain("Restrict access to HR");
+    const repAfterPlan = (
+      await call("/api/reporter/case", undefined, repCookie)
+    ).json();
+    expect(repAfterPlan.detrimentRisk).toBe("elevated");
+    expect(repAfterPlan.protectionPlan).toBeUndefined();
+
+    // Feedback before closure is rejected
+    expect(
+      (
+        await call(
+          "/api/reporter/feedback",
+          { trust: 5, communication: 4, protection: 5 },
+          repCookie,
+        )
+      ).statusCode,
+    ).toBe(409);
+
+    // Transition to investigating and validate procedural fairness on substantiated closure (Clause 8.4.3)
+    await call(`/api/cases/${cid}/state`, { state: "triage" }, cookies.manager);
+    await call(
+      `/api/cases/${cid}/state`,
+      { state: "investigating" },
+      cookies.manager,
+    );
+    expect(
+      (
+        await call(
+          `/api/cases/${cid}/closure`,
+          {
+            outcome: "substantiated",
+            rationale:
+              "Corroborated witness statements and access logs confirm policy breach.",
+            publicExplanation:
+              "The investigation concluded and appropriate corrective measures were taken.",
+            rootCause: "culture_leadership",
+            proceduralFairness: {
+              conflictChecked: true,
+              subjectConfidentialityProtected: true,
+              subjectResponseStatus: "not_applicable",
+              subjectResponseRationale: "",
+            },
+          },
+          cookies.manager,
+        )
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          `/api/cases/${cid}/closure`,
+          {
+            outcome: "substantiated",
+            rationale:
+              "Corroborated witness statements and access logs confirm policy breach.",
+            publicExplanation:
+              "The investigation concluded and appropriate corrective measures were taken.",
+            rootCause: "culture_leadership",
+            proceduralFairness: {
+              conflictChecked: true,
+              subjectConfidentialityProtected: true,
+              subjectResponseStatus: "heard",
+              subjectResponseRationale:
+                "The subject was interviewed on record and provided a written response.",
+            },
+          },
+          cookies.manager,
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          `/api/cases/${cid}/closure/review`,
+          {
+            approve: true,
+            reason:
+              "Independent review verified procedural fairness and evidence.",
+          },
+          cookies.manager2,
+        )
+      ).statusCode,
+    ).toBe(200);
+
+    // Post-closure detriment report works even when case is closed (Clauses 8.3 & 8.4.2)
+    const detRes = await call(
+      "/api/reporter/detriment",
+      {
+        body: "I was excluded from project renewals following closure of this report.",
+        privacyReviewed: true,
+      },
+      repCookie,
+    );
+    expect(detRes.statusCode).toBe(201);
+    const closedStaffView = (
+      await call(`/api/cases/${cid}`, undefined, cookies.manager)
+    ).json();
+    expect(closedStaffView.detrimentFlagged).toBe(true);
+    expect(closedStaffView.detrimentReports).toHaveLength(1);
+
+    // Post-closure feedback works once and rejects duplicates (Clauses 8.5 & 9.1)
+    expect(
+      (
+        await call(
+          "/api/reporter/feedback",
+          { trust: 5, communication: 4, protection: 5 },
+          repCookie,
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          "/api/reporter/feedback",
+          { trust: 3, communication: 3, protection: 3 },
+          repCookie,
+        )
+      ).statusCode,
+    ).toBe(409);
+
+    // Verify k-anonymity suppression (< 5 feedback entries -> empty array, >= 5 -> aggregated)
+    const beforeFive = (
+      await call("/api/admin/analytics", undefined, cookies.admin)
+    ).json();
+    expect(beforeFive.feedback).toEqual([]);
+    expect(beforeFive.sla.length).toBeGreaterThan(0);
+    expect(beforeFive.detriment.length).toBeGreaterThan(0);
+
+    const extraCases = await rows(
+      caseStore.db,
+      sql`select id from cases where feedback is null limit 4`,
+    );
+    for (const ec of extraCases) {
+      await rows(
+        caseStore.db,
+        sql`update cases set feedback=${JSON.stringify({ trust: 4, communication: 4, protection: 4 })}::jsonb where id=${ec.id}`,
+      );
+    }
+    const afterFive = (
+      await call("/api/admin/analytics", undefined, cookies.admin)
+    ).json();
+    expect(afterFive.feedback).toHaveLength(1);
+    expect(afterFive.feedback[0].count).toBeGreaterThanOrEqual(5);
+  });
 });

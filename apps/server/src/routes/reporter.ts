@@ -2,7 +2,11 @@ import type { FastifyPluginAsync } from "fastify";
 import { sql } from "drizzle-orm";
 import { randomUUID, randomInt } from "node:crypto";
 import { z } from "zod";
-import { suiteReportSchema, submissionSecretsSchema } from "@whistle/shared";
+import {
+  suiteReportSchema,
+  submissionSecretsSchema,
+  reporterFeedbackSchema,
+} from "@whistle/shared";
 import {
   checkSecret,
   hashSecret,
@@ -262,6 +266,58 @@ export const reporterRoutes: FastifyPluginAsync = async (app) => {
       );
       await audit(tx, "reporter", "reopening_requested", req.reporter!.id);
       await enqueue(tx, "staff_alert", req.reporter!.id, { event: "reopen" });
+    });
+    return { ok: true };
+  });
+  app.post(
+    "/detriment",
+    { preHandler: requireReporter },
+    async (req, reply) => {
+      const { body } = z
+        .object({
+          body: z.string().trim().min(10).max(10000),
+          privacyReviewed: z.literal(true),
+        })
+        .parse(req.body);
+      const id = randomUUID();
+      await db.transaction(async (tx) => {
+        await rows(
+          tx,
+          sql`insert into case_records(id,case_id,kind,body_enc) values(${id},${req.reporter!.id},'detriment',${seal({ text: body }, config.keys, "record:" + id)})`,
+        );
+        await rows(
+          tx,
+          sql`update cases set detriment_flagged=true,updated_at=now() where id=${req.reporter!.id}`,
+        );
+        await audit(tx, "reporter", "detriment_reported", req.reporter!.id);
+        await enqueue(tx, "staff_alert", req.reporter!.id, {
+          event: "detriment",
+        });
+      });
+      return reply.status(201).send({ id });
+    },
+  );
+  app.post("/feedback", { preHandler: requireReporter }, async (req) => {
+    const v = reporterFeedbackSchema.parse(req.body);
+    await db.transaction(async (tx) => {
+      const [c] = await rows(
+        tx,
+        sql`select state,feedback from cases where id=${req.reporter!.id} for update`,
+      );
+      if (c?.state !== "closed")
+        throw new HttpError(409, "Not closed", "invalid_transition");
+      if (c.feedback)
+        throw new HttpError(409, "Feedback exists", "feedback_exists");
+      await rows(
+        tx,
+        sql`update cases set feedback=${JSON.stringify({ ...v, submittedAt: new Date().toISOString() })}::jsonb,updated_at=now() where id=${req.reporter!.id}`,
+      );
+      await audit(
+        tx,
+        "reporter",
+        "reporter_feedback_submitted",
+        req.reporter!.id,
+      );
     });
     return { ok: true };
   });

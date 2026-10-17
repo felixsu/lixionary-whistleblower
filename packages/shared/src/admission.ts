@@ -60,7 +60,8 @@ export type AdmissionChallenge =
       expiresIn: number;
       resendAfter: number;
     }
-  | { status: "unregistered" | "disabled" };
+  | { status: "unregistered"; canRequestAccess?: boolean }
+  | { status: "disabled" };
 export type AdmissionVerification =
   | { reportToken: string; expiresIn: number }
   | { requestToken: string; expiresIn: number };

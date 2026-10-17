@@ -26,6 +26,8 @@ type CaseRow = {
   case_code: string;
   state: string;
   category: string;
+  detriment_risk?: string;
+  detriment_flagged?: boolean;
   overdue: boolean;
   unread: boolean;
 };
@@ -96,6 +98,11 @@ export function CaseList() {
                 <StatusBadge state={c.state}>{t(c.state)}</StatusBadge>{" "}
                 {c.category}
               </span>
+              {c.detriment_flagged && (
+                <StatusBadge state="overdue">
+                  {t("detrimentFlagged")}
+                </StatusBadge>
+              )}
               {c.overdue && (
                 <StatusBadge state="overdue">{t("overdue")}</StatusBadge>
               )}
@@ -202,6 +209,17 @@ export function CaseWorkspace({ children }: { children: ReactNode }) {
               <StatusBadge state={current.verification.state}>
                 {t(current.verification.state)}
               </StatusBadge>
+              {current.detrimentRisk &&
+                current.detrimentRisk !== "unassessed" && (
+                  <StatusBadge state={current.detrimentRisk}>
+                    {t(`risk_${current.detrimentRisk}`)}
+                  </StatusBadge>
+                )}
+              {current.detrimentFlagged && (
+                <StatusBadge state="overdue">
+                  {t("detrimentFlagged")}
+                </StatusBadge>
+              )}
               {current.hold && (
                 <StatusBadge state="hold">{t("hold")}</StatusBadge>
               )}

@@ -32,6 +32,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get("/analytics", async (req) => {
     const predicate =
       req.staff!.role === "admin" ? sql`true` : access(req.staff!);
+    const s = await settings(db);
     const groups = await rows(
       db,
       sql`select c.state,count(*)::int count,round(avg(extract(epoch from (coalesce(c.closed_at,now())-c.created_at))/89550)::numeric,1) average_days,case when count(c.acknowledged_at)>=5 then round(avg(extract(epoch from (c.acknowledged_at-c.created_at))/89550)::numeric,1) end acknowledgment_days from cases c where ${predicate} group by c.state having count(*)>=5`,
@@ -40,12 +41,37 @@ export async function adminRoutes(app: FastifyInstance) {
       db,
       sql`select c.closure->>'outcome' outcome,count(*)::int count from cases c where c.state='closed' and ${predicate} group by c.closure->>'outcome' having count(*)>=5`,
     );
+    const rootCauses = await rows(
+      db,
+      sql`select coalesce(c.closure->>'rootCause','not_applicable') root_cause,count(*)::int count from cases c where c.state='closed' and ${predicate} group by coalesce(c.closure->>'rootCause','not_applicable') having count(*)>=5`,
+    );
     const correctiveActions = await rows(
       db,
       sql`select count(*)::int total,count(r.completed_at)::int completed from case_records r join cases c on c.id=r.case_id where r.kind='task' and ${predicate} having count(distinct c.id)>=5`,
     );
+    const sla = await rows(
+      db,
+      sql`select count(*)::int total,count(*) filter(where c.acknowledged_at is not null and c.acknowledged_at<=c.created_at+${s.body.acknowledgmentDays}*interval '1 day')::int within_acknowledgment_sla,count(*) filter(where c.state<>'closed' and (c.acknowledged_at is null and c.created_at<now()-${s.body.acknowledgmentDays}*interval '1 day' or coalesce(c.last_response_at,c.created_at)<now()-${s.body.followupDays}*interval '1 day'))::int overdue from cases c where ${predicate} having count(*)>=5`,
+    );
+    const detriment = await rows(
+      db,
+      sql`select count(*)::int total,count(*) filter(where c.detriment_risk in ('elevated','critical'))::int elevated_or_critical,count(*) filter(where c.detriment_flagged)::int flagged from cases c where ${predicate} having count(*)>=5`,
+    );
+    const feedback = await rows(
+      db,
+      sql`select count(*)::int count,round(avg((c.feedback->>'trust')::numeric),1) trust,round(avg((c.feedback->>'communication')::numeric),1) communication,round(avg((c.feedback->>'protection')::numeric),1) protection from cases c where c.feedback is not null and ${predicate} having count(*)>=5`,
+    );
     await audit(db, req.staff!.id, "aggregate_metrics_viewed");
-    return { groups, outcomes, correctiveActions, suppressionThreshold: 5 };
+    return {
+      groups,
+      outcomes,
+      rootCauses,
+      correctiveActions,
+      sla,
+      detriment,
+      feedback,
+      suppressionThreshold: 5,
+    };
   });
   app.register(async (a) => {
     a.addHook("preHandler", async (req) => admin(req.staff!));
